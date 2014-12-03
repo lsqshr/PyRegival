@@ -1,0 +1,10 @@
+/.xdebug_tkmedit
+__pychache__/*
+*pyc
+*~
+*#
+*h5
+*gz
+*mat
+*npy
+*swp
