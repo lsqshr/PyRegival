@@ -1,3 +1,4 @@
+from os.path import abspath
 
 # Model for general MR image subject
 class mrimg (object):
@@ -23,7 +24,7 @@ class mrimg (object):
         return self._meta[fieldname]
 
     def getfilepath(self):
-        return self._filepath
+        return abspath(self._filepath)
 
 
 # Model for ADNI MR image which defined by the merged csv table

@@ -4,6 +4,8 @@ import re
 from os.path import * 
 import csv
 from models import adnimrimg
+from nipype.interfaces.fsl.preprocess import FSLCommandInputSpec, FSLCommand
+from nipype.interfaces.base import TraitedSpec, File, traits
 
 # Traverse the dbpath for the files with provided suffix
 def traverse_for_file(path, suffix):
@@ -60,3 +62,23 @@ def viewslice(file):
     path, fname = split(file)
     subprocess.Popen(["tkmedit",'-f', file])
 
+
+class StdRoiInputSpec(FSLCommandInputSpec): 
+    in_file  = File(exists=True, 
+                    desc = 'path/name of the image to be masked',
+                    argstr='%s', position=0, mandatory=True)
+    out_file = File(argstr='%s', desc='masked output file',
+                    name_source=['in_file'], name_template='%s_roi',
+                    position=1, hash_files=False)
+    betpremask = traits.Bool(desc='create surface outline image',
+                    argstr='-b', position=2)
+
+class StdRoiOutputSpec(TraitedSpec):
+    out_file = File(exists=True, desc='path/name of the masked image')
+
+#------------------
+# Wrap the 'standard_space_roi' of FSL, did not find this interface in the current nipype
+class StdRoi(FSLCommand):
+    _cmd = 'standard_space_roi'
+    input_spec = StdRoiInputSpec
+    output_spec = StdRoiOutputSpec
