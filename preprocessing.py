@@ -82,11 +82,12 @@ def transform(lmodel, dbpath, interval):
     
     # Make the workflow
     imgidpairs = [(t[0][1], t[1][1]) for t in transpairs]
-    trans_datasource = pe.MapNode(interface=nio.DataGrabber(infields=['fixedimgid', 'movingimgid'],
+    trans_datasource = pe.MapNode(interface=nio.DataGrabber(
+                                         infields=['fixedimgid', 'movingimgid'],
                                          outfields=['fixed_file', 
                                          'moving_file']),
-                                         name='trans_datasource', 
-                                         iterfield = ['fixedimgid', 'movingimgid'])
+                                  name='trans_datasource', 
+                                  iterfield = ['fixedimgid', 'movingimgid'])
     trans_datasource.inputs.base_directory = os.path.abspath(join(dbpath, 'results'))
     trans_datasource.inputs.template = 'preprocessed/_imgid_%s/ants_deformed.nii.gz'
     trans_datasource.inputs.template_args = dict(fixed_file=[['fixedimgid']],
@@ -95,8 +96,15 @@ def transform(lmodel, dbpath, interval):
     trans_datasource.inputs.fixedimgid  = [t[0] for t in imgidpairs]
     trans_datasource.inputs.movingimgid = [t[1] for t in imgidpairs]
 
-    transnode = pe.Node(interface=SynQuick(), name='transnode')
+    transnode = pe.MapNode(interface=SynQuick(),
+                           name='transnode',
+                           iterfield=['fixed_image', 'moving_image'])
     transnode.inputs.output_prefix = 'out'
+    transnode.inputs.dimension = 3
+    #transnode = make_antsRegistrationNode() # in nipype antsRegistration has a non-valid flag: 
+                                             # `--collapse-linear-transforms-to-fixed-image-header` 
+                                             # which cannot be turned off till 10/1/15
+    
 
     datasink = pe.Node(nio.DataSink(), name='sinker')
     datasink.inputs.base_directory = os.path.abspath(join(dbpath, 'results'))
@@ -111,3 +119,30 @@ def transform(lmodel, dbpath, interval):
 
     # Run workflow with all cpus available
     wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()})
+
+# Make fillin the default values
+# Currently unused because of the invalid flag passed by nipype
+def make_antsRegistrationNode():
+    reg = Registration()
+    reg.inputs.output_transform_prefix = "output_"
+    #reg.inputs.initial_moving_transform = 'trans.mat'
+    #reg.inputs.invert_initial_moving_transform = False 
+    reg.inputs.transforms = ['Affine', 'SyN']
+    reg.inputs.transform_parameters = [(2.0,), (0.25, 3.0, 0.0)]
+    reg.inputs.number_of_iterations = [[1500, 200], [100, 50, 30]]
+    reg.inputs.dimension = 3
+    reg.inputs.write_composite_transform = True
+    reg.inputs.collapse_output_transforms = False
+    reg.inputs.metric = ['Mattes']*2
+    reg.inputs.metric_weight = [1]*2 # Default (value ignored currently by ANTs)
+    reg.inputs.radius_or_number_of_bins = [32]*2
+    reg.inputs.sampling_strategy = ['Random', None]
+    reg.inputs.sampling_percentage = [0.05, None]
+    reg.inputs.convergence_threshold = [1.e-8, 1.e-9]
+    reg.inputs.convergence_window_size = [20]*2
+    reg.inputs.smoothing_sigmas = [[1,0], [2,1,0]]
+    reg.inputs.sigma_units = ['vox'] * 2
+    reg.inputs.shrink_factors = [[2,1], [3,2,1]]
+    reg.inputs.use_estimate_learning_rate_once = [True, True]
+    reg.inputs.use_histogram_matching = [True, True] # This is the default
+    return pe.Node(reg,'transnode')
