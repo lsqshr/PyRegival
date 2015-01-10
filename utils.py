@@ -5,7 +5,8 @@ from os.path import *
 import csv
 from models import adnimrimg
 from nipype.interfaces.fsl.preprocess import FSLCommandInputSpec, FSLCommand
-from nipype.interfaces.base import TraitedSpec, File, traits
+from nipype.interfaces.ants.registration import ANTSCommand, ANTSCommandInputSpec, RegistrationOutputSpec
+from nipype.interfaces.base import TraitedSpec, File, traits, CommandLine, InputMultiPath
 
 # Traverse the dbpath for the files with provided suffix
 def traverse_for_file(path, suffix):
@@ -48,7 +49,6 @@ def get_adni_mrlist(dbpath):
             meta[header[i]] = col
 
         imgid = meta['Image.Data.ID']
-
         print('=====limgid==============')
         print(limgid) 
         print('===================')
@@ -56,11 +56,52 @@ def get_adni_mrlist(dbpath):
         imgf = limg[ limgid.index(imgid) ]
         filepath = join(imgf[0], imgf[1])
         ladnimr.append(adnimrimg(meta, filepath))
+
     return ladnimr
 
 def viewslice(file):
     path, fname = split(file)
     subprocess.Popen(["tkmedit",'-f', file])
+
+# A collection tool class to perform some grouping and searching of the adnimriimg models
+class AdniMrCollection(object):
+    def __init__(self, lmodel):
+        self.lmodel = lmodel 
+
+    # Return Image.Data.ID pairs [[fixed_img_id1, moving_img_id1], [fixed_img_id2, moving_img_id2],...]
+    def find_transform_pairs(self, interval=[6,12]):
+        sbjdict = self.group_sbj()
+        transpairs = []
+
+        # Find the intervals with the specific lengths
+        for key, sbj_imglist in sbjdict.iteritems():
+            #sbj_imglist = sbjdict[key]
+            sbj_imglist.sort(key=lambda x: x[0])
+
+            print [ sbj[0] for sbj in sbj_imglist ] # Check the sorting
+
+            for i in xrange(len(sbj_imglist)):
+                for j in xrange(i+1,len(sbj_imglist)):
+                    viscode1 = int(sbj_imglist[i][0].replace('m', ''))
+                    viscode2 = int(sbj_imglist[j][0].replace('m', ''))
+                    if (viscode2 - viscode1) in interval:
+                        transpairs.append((sbj_imglist[j], sbj_imglist[i]))
+
+        return transpairs
+
+    # Group models into an RID dictionary <RID, [(VISCODE1, Image.Data.ID1), ...]> 
+    def group_sbj(self):
+        sbjdict = {}
+        for model in self.lmodel:
+            rid     = model.getmetafield('RID') 
+            viscode = model.getmetafield('VISCODE')
+            imgid   = model.getmetafield('Image.Data.ID')
+            if rid in sbjdict:
+                sbjdict[rid].append((viscode, imgid))
+            else:
+                sbjdict[rid] = [(viscode, imgid)]
+
+        return sbjdict
 
 
 class StdRoiInputSpec(FSLCommandInputSpec): 
@@ -82,3 +123,22 @@ class StdRoi(FSLCommand):
     _cmd = 'standard_space_roi'
     input_spec = StdRoiInputSpec
     output_spec = StdRoiOutputSpec
+
+class SynQuickInputSpec(ANTSCommandInputSpec):
+    dimension = traits.Enum(3, 2, argstr='-d %d', usedefault=False,
+                            position=1, desc='image dimension (2 or 3)')
+    fixed_image = InputMultiPath(File(exists=True), mandatory=True, argstr='-f %s',
+                                    desc=('image to apply transformation to (generally a coregistered '
+                                            'functional)'))
+    moving_image = InputMultiPath(File(exists=True), argstr='-m %s',
+                                    mandatory=True,
+                                    desc=('image to apply transformation to (generally a coregistered '
+                                            'functional)'))
+    output_prefix = traits.Str('out', usedefault=True,
+                                            argstr='-o %s',
+                                            mandatory=True, desc='')
+
+class SynQuick(ANTSCommand):
+    _cmd = 'antsRegistrationSyNQuick.sh'
+    input_spec = SynQuickInputSpec 
+    output_spec = RegistrationOutputSpec 

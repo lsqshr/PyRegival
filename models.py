@@ -5,7 +5,8 @@ class mrimg (object):
     def __init__(self, meta={}, filepath=""):
         self._meta = meta # The meta information of each image is dynamic
         self._imgid = self.get_imgid()
-        self._filepath = filepath 
+        self._filepath = filepath # The file path is optional here, 
+                                  # since the nipype dataGrabber will find it out according to the Image ID
 
     def findflirtedimg(self, flirted):
         imgid = self._get_imgid()
@@ -18,7 +19,7 @@ class mrimg (object):
         return join(path, foundfile[0])
 
     def get_imgid(self):
-        return self._meta['imgid'] # assumed name of this field
+        return self._meta['Image.Data.ID'] # assumed name of this field
 
     def getmetafield(self, fieldname):
         return self._meta[fieldname]
@@ -34,3 +35,5 @@ class adnimrimg (mrimg):
 
     def get_imgid(self):
         return self._meta['Image.Data.ID']
+
+

@@ -3,37 +3,31 @@ import nipype.pipeline.engine as pe
 import nipype.interfaces.utility as niu
 import nipype.interfaces.io as nio
 from nipype.interfaces.ants.legacy import antsIntroduction
+from nipype.interfaces.ants import Registration
 from os.path import * 
 import os
 import multiprocessing
-from utils import StdRoi
+from utils import *
 
-def preprocess(lmodel, dbpath, 
-               normtemplatepath='/usr/share/fsl/data/standard/MNI152_T1_2mm_brain.nii.gz', 
-               normalise_method='ANTS'):
+def normalise(lmodel, dbpath, 
+                normtemplatepath='/usr/share/fsl/data/standard/MNI152_T1_2mm_brain.nii.gz', 
+                normalise_method='ANTS'):
+    
+    lsbjid = [model.getmetafield('Subject') for model in lmodel]
+    limgid = [model.get_imgid() for model in lmodel]
     '''
-    bettedpath = join(dbpath, 'betted')
-
-    if not exists(bettedpath):
-      os.makedirs(bettedpath)
+    inputnode1 = pe.Node(niu.IdentityInterface(fields=['sbjid']), name='input1')
+    inputnode1.iterables = ('sbjid', lsbjid)
     '''
+    inputnode = pe.Node(niu.IdentityInterface(fields=['imgid']), name='input2')
+    inputnode.iterables = ('imgid', limgid)
 
     # Create a nipype workflow with serial standard_roi => bet => flirt/antNormalization
-    inputnode  = pe.Node(interface=niu.IdentityInterface(fields=['in_file']), name = 'inputspec')
-    inputidnode  = pe.Node(interface=niu.IdentityInterface(fields=['subject_id']), name = 'inputidspec')
-    outputnode = pe.Node(interface=niu.IdentityInterface(fields=['out_file']), name = 'outputspec')
-
-    inputnode.iterables = ('in_file', [model.getfilepath() for model in lmodel])
-    #inputidnode.iterables = ('subject_id', [model.get_imgid() for model in lmodel])
-
-    ''' 
-    # Replaced outputnode to DataSink in nipype: we did not use the DataGrabber because ADNI
-    #                                           filename template is way to compilcated
-
-    outputnode.iterables = ('out_file', \
-                            [join(dbpath, 'flirted', split(model.getfilepath())[-1])\
-                             for model in lmodel])
-    '''
+    datasource = pe.Node(nio.DataGrabber(infields=['imgid'], outfields=['srcimg']), name='niifinder')
+    datasource.inputs.base_directory = os.path.abspath(dbpath)
+    datasource.inputs.template = '*/*/*/*/ADNI_*_I%s.nii'
+    datasource.inputs.sort_filelist = True
+    datasource.inputs.template_args['srcimg'] = [['imgid']]
 
     datasink = pe.Node(nio.DataSink(), name='sinker')
     datasink.inputs.base_directory = os.path.abspath(join(dbpath, 'results'))
@@ -52,14 +46,16 @@ def preprocess(lmodel, dbpath,
 
     #stripper.inputs.robust = True
     #stripper.inputs.reduce_bias = True
-    wf.connect(inputnode, 'in_file', stdroi, 'in_file')
+    #wf.connect(inputnode1, 'sbjid', datasource, 'sbjid')
+    wf.connect(inputnode, 'imgid', datasource, 'imgid')
+    wf.connect(datasource, 'srcimg', stdroi, 'in_file')
     wf.connect(stdroi, 'out_file', stripper, 'in_file')
 
     if normalise_method == 'FSL':
         normwrap = pe.Node(fsl.FLIRT(bins=640, cost_func='mutualinfo'), name='flirt')
         normwrap.inputs.reference = normtemplatepath
         normwrap.inputs.output_type = "NIFTI_GZ"       #stripper.inputs.padding = True
-        infield = 'in_file'
+        infield  = 'in_file'
         outfield = 'out_file'
     elif normalise_method == 'ANTS':
         normwrap = pe.Node(antsIntroduction(), name='ants')
@@ -68,13 +64,50 @@ def preprocess(lmodel, dbpath,
         normwrap.inputs.transformation_model = 'RA'
         normwrap.inputs.ignore_exception = True
         normwrap.inputs.num_threads = 4 
-        infield = 'input_image'
+        infield  = 'input_image'
         outfield = 'output_file'
 
     # The input/output file spec were differnet between FSL and ANTS in nipype
     wf.connect(stripper, 'out_file', normwrap, infield)
     #wf.connect(inputidnode, 'subject_id', datasink, 'container')
     wf.connect(normwrap, outfield, datasink, 'preprocessed')
+
+    # Run workflow with all cpus available
+    wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()})
+
+
+def transform(lmodel, dbpath, interval):
+    # Find out the pairs to be transformed [[fixed, moving], ]
+    transpairs = AdniMrCollection(lmodel).find_transform_pairs(interval)
+    
+    # Make the workflow
+    imgidpairs = [(t[0][1], t[1][1]) for t in transpairs]
+    trans_datasource = pe.MapNode(interface=nio.DataGrabber(infields=['fixedimgid', 'movingimgid'],
+                                         outfields=['fixed_file', 
+                                         'moving_file']),
+                                         name='trans_datasource', 
+                                         iterfield = ['fixedimgid', 'movingimgid'])
+    trans_datasource.inputs.base_directory = os.path.abspath(join(dbpath, 'results'))
+    trans_datasource.inputs.template = 'preprocessed/_imgid_%s/ants_deformed.nii.gz'
+    trans_datasource.inputs.template_args = dict(fixed_file=[['fixedimgid']],
+                                                 moving_file=[['movingimgid']])
+    trans_datasource.inputs.sort_filelist = True
+    trans_datasource.inputs.fixedimgid  = [t[0] for t in imgidpairs]
+    trans_datasource.inputs.movingimgid = [t[1] for t in imgidpairs]
+
+    transnode = pe.Node(interface=SynQuick(), name='transnode')
+    transnode.inputs.output_prefix = 'out'
+
+    datasink = pe.Node(nio.DataSink(), name='sinker')
+    datasink.inputs.base_directory = os.path.abspath(join(dbpath, 'results'))
+
+    # Start to make build the workflow
+    wf = pe.Workflow(name="transform")
+    wf.connect(trans_datasource, 'fixed_file', transnode, 'fixed_image')
+    wf.connect(trans_datasource, 'moving_file', transnode, 'moving_image')
+    wf.connect(transnode, 'forward_transforms', datasink, 'transformed')
+    wf.connect(transnode, 'composite_transform', datasink, 'transformed.@composite')
+    wf.connect(transnode, 'warped_image', datasink, 'transformed.@wrappedimage')
 
     # Run workflow with all cpus available
     wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()})
