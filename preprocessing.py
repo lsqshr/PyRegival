@@ -29,7 +29,7 @@ def normalise(lmodel, dbpath,
     datasource.inputs.sort_filelist = True
     datasource.inputs.template_args['srcimg'] = [['imgid']]
 
-    datasink = pe.Node(nio.DataSink(), name='sinker')
+    datasink = pe.Node(nio.DataSink(), name='normsinker')
     datasink.inputs.base_directory = os.path.abspath(join(dbpath, 'results'))
 
     # Start to make build the workflow
@@ -63,7 +63,7 @@ def normalise(lmodel, dbpath,
         normwrap.inputs.max_iterations = [10, 10, 10]
         normwrap.inputs.transformation_model = 'RA'
         normwrap.inputs.ignore_exception = True
-        normwrap.inputs.num_threads = 4 
+        normwrap.inputs.num_threads = 4
         infield  = 'input_image'
         outfield = 'output_file'
 
@@ -82,6 +82,9 @@ def transform(lmodel, dbpath, interval):
     
     # Make the workflow
     imgidpairs = [(t[0][1], t[1][1]) for t in transpairs]
+    # DEBUG: Only 1 pair
+    imgidpairs = [imgidpairs[0]]
+
     trans_datasource = pe.MapNode(interface=nio.DataGrabber(
                                          infields=['fixedimgid', 'movingimgid'],
                                          outfields=['fixed_file', 
@@ -89,6 +92,7 @@ def transform(lmodel, dbpath, interval):
                                   name='trans_datasource', 
                                   iterfield = ['fixedimgid', 'movingimgid'])
     trans_datasource.inputs.base_directory = os.path.abspath(join(dbpath, 'results'))
+    #print (trans_datasource.inputs.base_directory)
     trans_datasource.inputs.template = 'preprocessed/_imgid_%s/ants_deformed.nii.gz'
     trans_datasource.inputs.template_args = dict(fixed_file=[['fixedimgid']],
                                                  moving_file=[['movingimgid']])
@@ -100,25 +104,28 @@ def transform(lmodel, dbpath, interval):
                            name='transnode',
                            iterfield=['fixed_image', 'moving_image'])
     transnode.inputs.output_prefix = 'out'
-    transnode.inputs.dimension = 3
+    transnode.inputs.dimension = 3 
     #transnode = make_antsRegistrationNode() # in nipype antsRegistration has a non-valid flag: 
                                              # `--collapse-linear-transforms-to-fixed-image-header` 
                                              # which cannot be turned off till 10/1/15
     
 
-    datasink = pe.Node(nio.DataSink(), name='sinker')
+    datasink = pe.Node(nio.DataSink(), name='transsinker')
     datasink.inputs.base_directory = os.path.abspath(join(dbpath, 'results'))
 
     # Start to make build the workflow
     wf = pe.Workflow(name="transform")
     wf.connect(trans_datasource, 'fixed_file', transnode, 'fixed_image')
     wf.connect(trans_datasource, 'moving_file', transnode, 'moving_image')
-    wf.connect(transnode, 'forward_transforms', datasink, 'transformed')
-    wf.connect(transnode, 'composite_transform', datasink, 'transformed.@composite')
-    wf.connect(transnode, 'warped_image', datasink, 'transformed.@wrappedimage')
+    wf.connect(transnode, 'warp_field', datasink, 'transformed')
+    wf.connect(transnode, 'inverse_warp_field', datasink, 'transformed.@inverse_warp')
+    wf.connect(transnode, 'affine_transformation', datasink, 'transformed.@affine')
+    wf.connect(transnode, 'inverse_warped', datasink, 'transformed.@inverse_warped_image')
+    wf.connect(transnode, 'warped_image', datasink, 'transformed.@warped_image')
 
     # Run workflow with all cpus available
     wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()})
+
 
 # Make fillin the default values
 # Currently unused because of the invalid flag passed by nipype

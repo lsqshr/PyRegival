@@ -7,6 +7,7 @@ from models import adnimrimg
 from nipype.interfaces.fsl.preprocess import FSLCommandInputSpec, FSLCommand
 from nipype.interfaces.ants.registration import ANTSCommand, ANTSCommandInputSpec, RegistrationOutputSpec
 from nipype.interfaces.base import TraitedSpec, File, traits, CommandLine, InputMultiPath
+from nipype.interfaces.traits_extension import isdefined
 
 # Traverse the dbpath for the files with provided suffix
 def traverse_for_file(path, suffix):
@@ -138,7 +139,35 @@ class SynQuickInputSpec(ANTSCommandInputSpec):
                                             argstr='-o %s',
                                             mandatory=True, desc='')
 
+class SynQuickOutputSpec(ANTSCommandInputSpec):
+    warp_field = File(exists=True, desc='warped displacement fields')
+    inverse_warp_field = File(exists=True, desc='inversed warp displacement fields')
+    affine_transformation = File(exists=True, desc='affine pre-registration matrix')
+    inverse_warped = File(exists=True, desc='resampled inverse image')
+    warped_image = File(exists=True, desc='resampled forward image')
+
 class SynQuick(ANTSCommand):
     _cmd = 'antsRegistrationSyNQuick.sh'
     input_spec = SynQuickInputSpec 
-    output_spec = RegistrationOutputSpec 
+    output_spec = SynQuickOutputSpec
+
+    def _list_outputs(self): # Adapted from ants.registration.Registration
+        outputs = self._outputs().get()
+
+        outputs['warp_field'] = os.path.join(os.getcwd(),
+                                 self.inputs.output_prefix +
+                                 '1Warp.nii.gz')
+        outputs['inverse_warp_field'] = os.path.join(os.getcwd(),
+                                 self.inputs.output_prefix +
+                                     '1InverseWarp.nii.gz')
+
+        outputs['affine_transformation'] = os.path.join(os.getcwd(),
+                                                        self.inputs.output_prefix +
+                                                        '0GenericAffine.mat')
+        outputs['inverse_warped'] = os.path.join(os.getcwd(),
+                                             self.inputs.output_prefix +
+                                             'InverseWarped.nii.gz')
+        outputs['warped_image'] = os.path.join(os.getcwd(),
+                                              self.inputs.output_prefix +
+                                              'Warped.nii.gz')
+        return outputs

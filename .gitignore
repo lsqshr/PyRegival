@@ -1,3 +1,12 @@
+/play.py
+/preprocess/d3.js
+/preprocess/graph.json
+/preprocess/graph1.json
+/preprocess/index.html
+/transform/d3.js
+/transform/graph.json
+/transform/graph1.json
+/transform/index.html
 /.xdebug_tkmedit
 __pychache__/*
 *pyc
