@@ -83,7 +83,14 @@ def transform(lmodel, dbpath, interval):
     # Make the workflow
     imgidpairs = [(t[0][1], t[1][1]) for t in transpairs]
     # DEBUG: Only 1 pair
-    imgidpairs = [imgidpairs[0]]
+    #imgidpairs = [imgidpairs[0]]
+
+    inputnode = pe.MapNode(interface=niu.IdentityInterface(fields=['fixedimgid', 'movingimgid', 'transid']),
+                           name='inputnode',
+                           iterfield = ['fixedimgid', 'movingimgid', 'transid'])
+    inputnode.inputs.fixedimgid  = [t[0] for t in imgidpairs]
+    inputnode.inputs.movingimgid = [t[1] for t in imgidpairs]
+    inputnode.inputs.transid = ['%s-%s'% (t[0], t[1]) for t in imgidpairs]
 
     trans_datasource = pe.MapNode(interface=nio.DataGrabber(
                                          infields=['fixedimgid', 'movingimgid'],
@@ -97,8 +104,6 @@ def transform(lmodel, dbpath, interval):
     trans_datasource.inputs.template_args = dict(fixed_file=[['fixedimgid']],
                                                  moving_file=[['movingimgid']])
     trans_datasource.inputs.sort_filelist = True
-    trans_datasource.inputs.fixedimgid  = [t[0] for t in imgidpairs]
-    trans_datasource.inputs.movingimgid = [t[1] for t in imgidpairs]
 
     transnode = pe.MapNode(interface=SynQuick(),
                            name='transnode',
@@ -108,20 +113,35 @@ def transform(lmodel, dbpath, interval):
     #transnode = make_antsRegistrationNode() # in nipype antsRegistration has a non-valid flag: 
                                              # `--collapse-linear-transforms-to-fixed-image-header` 
                                              # which cannot be turned off till 10/1/15
-    
 
-    datasink = pe.Node(nio.DataSink(), name='transsinker')
-    datasink.inputs.base_directory = os.path.abspath(join(dbpath, 'results'))
+    datasink = pe.MapNode(nio.DataSink(infields=['container',
+                                                 'SyNQuick', 
+                                                 'SyNQuick.@inverse_warp',
+                                                 'SyNQuick.@affine',
+                                                 'SyNQuick.@inverse_warped_image',
+                                                 'SyNQuick.@warped_image']), 
+                          iterfield=['container',
+                                     'SyNQuick', 
+                                     'SyNQuick.@inverse_warp',
+                                     'SyNQuick.@affine',
+                                     'SyNQuick.@inverse_warped_image',
+                                     'SyNQuick.@warped_image'], name='transsinker')
+    datasink.inputs.base_directory = os.path.abspath(join(dbpath, 'results', 'transformed'))
+    datasink.inputs.substitutions = [('_transnode', 'transid')]
+    datasink.inputs.parameterization = True
 
-    # Start to make build the workflow
+    # build the workflow
     wf = pe.Workflow(name="transform")
+    wf.connect(inputnode, 'fixedimgid', trans_datasource, 'fixedimgid')
+    wf.connect(inputnode, 'movingimgid', trans_datasource, 'movingimgid')
     wf.connect(trans_datasource, 'fixed_file', transnode, 'fixed_image')
     wf.connect(trans_datasource, 'moving_file', transnode, 'moving_image')
-    wf.connect(transnode, 'warp_field', datasink, 'transformed')
-    wf.connect(transnode, 'inverse_warp_field', datasink, 'transformed.@inverse_warp')
-    wf.connect(transnode, 'affine_transformation', datasink, 'transformed.@affine')
-    wf.connect(transnode, 'inverse_warped', datasink, 'transformed.@inverse_warped_image')
-    wf.connect(transnode, 'warped_image', datasink, 'transformed.@warped_image')
+    wf.connect(inputnode, 'transid', datasink, 'container')
+    wf.connect(transnode, 'warp_field', datasink, 'SyNQuick')
+    wf.connect(transnode, 'inverse_warp_field', datasink, 'SyNQuick.@inverse_warp')
+    wf.connect(transnode, 'affine_transformation', datasink, 'SyNQuick.@affine')
+    wf.connect(transnode, 'inverse_warped', datasink, 'SyNQuick.@inverse_warped_image')
+    wf.connect(transnode, 'warped_image', datasink, 'SyNQuick.@warped_image')
 
     # Run workflow with all cpus available
     wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()})
