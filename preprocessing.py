@@ -8,6 +8,7 @@ from os.path import *
 import os
 import multiprocessing
 from utils import *
+from additional_nipype_interfaces import *
 
 def normalise(lmodel, dbpath, 
                 normtemplatepath='/usr/share/fsl/data/standard/MNI152_T1_2mm_brain.nii.gz', 
@@ -172,4 +173,5 @@ def make_antsRegistrationNode():
     reg.inputs.shrink_factors = [[2,1], [3,2,1]]
     reg.inputs.use_estimate_learning_rate_once = [True, True]
     reg.inputs.use_histogram_matching = [True, True] # This is the default
+    
     return pe.Node(reg,'transnode')
