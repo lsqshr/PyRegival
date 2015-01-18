@@ -1,3 +1,9 @@
+import os
+from nipype.interfaces.fsl.preprocess import FSLCommandInputSpec, FSLCommand
+from nipype.interfaces.ants.registration import ANTSCommand, ANTSCommandInputSpec, RegistrationOutputSpec
+from nipype.interfaces.base import TraitedSpec, File, traits, CommandLine, InputMultiPath
+from nipype.interfaces.traits_extension import isdefined
+
 #------------------
 # Wrap 'FSL/standard_space_roi' of FSL, did not find this interface in the current nipype
 class StdRoiInputSpec(FSLCommandInputSpec): 
@@ -38,7 +44,7 @@ class SynQuickInputSpec(ANTSCommandInputSpec):
                                             mandatory=True, desc='')
 
 
-class SynQuickOutputSpec(ANTSCommandOutputSpec):
+class SynQuickOutputSpec(TraitedSpec):
     warp_field = File(exists=True, desc='warped displacement fields')
     inverse_warp_field = File(exists=True, desc='inversed warp displacement fields')
     affine_transformation = File(exists=True, desc='affine pre-registration matrix')
@@ -77,30 +83,30 @@ class SynQuick(ANTSCommand):
 # Wrap 'ants/ComposeMultiTransform'
 class ComposeInputSpec(ANTSCommandInputSpec):
     dimension = traits.Enum(3, 2, argstr='%d', 
-						    	usedefault=True,
-	                            position=0, desc='image dimension (2 or 3)')
+                                usedefault=True,
+                                position=0, desc='image dimension (2 or 3)')
     output_file = File(argstr='%s', desc='composed warp transform',
                     name_source=['output_file'], name_template='%s.nii.gz',
                     position=1, hash_files=False)
     reference = File(argstr='-R %s', desc='referencing image of the composition',
                     name_source=['reference'], name_template='%s.nii.gz',
                     position=2, hash_files=False)
-    transforms = InputMultiPath(File(exists=True), argstr='%s',
-                                mandatory=True,
-                                desc=('list of transforms to be composed'),
-                                position=3)
+    transform1 = File(argstr='%s', desc='first transform for composition',
+                    name_source=['trans1'], name_template='%s.nii.gz',
+                    position=3, hash_files=False)
+    transform2 = File(argstr='%s', desc='second transform for composition',
+                    name_source=['trans2'], name_template='%s.nii.gz',
+                    position=4, hash_files=False)
 
-class ComposeOutputSpec(ANTSCommandOutputSpec):
-	output_file = File(argstr='%s', desc='composed warp transform',
-                    name_source=['output_file'], name_template='%s.nii.gz',
-                    position=1, hash_files=False)
+class ComposeOutputSpec(TraitedSpec):
+    output_file = File(exists=True, desc='composed transform')
 
 class ComposeMultiTransform(ANTSCommand):
-	_cmd = 'ComposeMultiTransform'
-	input_spec = ComposeInputSpec
-	output_spec = ComposeOutputSpec
+    _cmd = 'ComposeMultiTransform'
+    input_spec = ComposeInputSpec
+    output_spec = ComposeOutputSpec
 
-	def _list_outputs(self):
+    def _list_outputs(self):
         outputs = self._outputs().get()
-        outputs['output_file'] = os.path.join(os.getcwd(),
-                                 self.inputs.output_file)
+        outputs['output_file'] = os.path.join(os.getcwd(), self.inputs.output_file)
+        return outputs

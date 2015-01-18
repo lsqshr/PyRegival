@@ -4,10 +4,7 @@ import re
 from os.path import * 
 import csv
 from models import adnimrimg
-from nipype.interfaces.fsl.preprocess import FSLCommandInputSpec, FSLCommand
-from nipype.interfaces.ants.registration import ANTSCommand, ANTSCommandInputSpec, RegistrationOutputSpec
-from nipype.interfaces.base import TraitedSpec, File, traits, CommandLine, InputMultiPath
-from nipype.interfaces.traits_extension import isdefined
+
 
 # Traverse the dbpath for the files with provided suffix
 def traverse_for_file(path, suffix):
@@ -23,9 +20,9 @@ def traverse_for_file(path, suffix):
 def find_adni_imgid(fname):
     lmatch = re.findall('_I\d+', fname)
     assert len(lmatch) <= 1 , 'More than one matches were found: '
-    cleanmatch = [] 
+    cleanmatch = []
 
-    for m in lmatch: 
+    for m in lmatch:
       cleanmatch.append(m[2:]) # Remove the '_' before image id 
 
     return cleanmatch[0] if len(cleanmatch) == 1 else None
