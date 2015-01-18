@@ -18,9 +18,6 @@ class mrimg (object):
           raise Exception('%d Duplicated image ID found for %s ' % (len(foundfile), imgid))
         return join(path, foundfile[0])
 
-    def get_imgid(self):
-        return self._meta['Image.Data.ID'] # assumed name of this field
-
     def getmetafield(self, fieldname):
         return self._meta[fieldname]
 

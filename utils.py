@@ -47,9 +47,11 @@ def get_adni_mrlist(dbpath):
             meta[header[i]] = col
 
         imgid = meta['Image.Data.ID']
+        '''
         print('=====limgid==============')
         print(limgid) 
         print('===================')
+        '''
 
         imgf = limg[ limgid.index(imgid) ]
         filepath = join(imgf[0], imgf[1])
@@ -74,14 +76,14 @@ class AdniMrCollection(object):
         # Find the intervals with the specific lengths
         for key, sbj_imglist in sbjdict.iteritems():
             #sbj_imglist = sbjdict[key]
-            sbj_imglist.sort(key=lambda x: x[0])
+            sbj_imglist.sort(key=lambda x: x.getmetafield('VISCODE'))
 
-            print [ sbj[0] for sbj in sbj_imglist ] # Check the sorting
+            #print [ sbj[0] for sbj in sbj_imglist ] # Check the sorting
 
             for i in xrange(len(sbj_imglist)):
                 for j in xrange(i+1,len(sbj_imglist)):
-                    viscode1 = int(sbj_imglist[i][0].replace('m', ''))
-                    viscode2 = int(sbj_imglist[j][0].replace('m', ''))
+                    viscode1 = int(sbj_imglist[i].getmetafield('VISCODE').replace('m', ''))
+                    viscode2 = int(sbj_imglist[j].getmetafield('VISCODE').replace('m', ''))
                     if (viscode2 - viscode1) in interval:
                         transpairs.append((sbj_imglist[j], sbj_imglist[i]))
 
@@ -92,12 +94,11 @@ class AdniMrCollection(object):
         sbjdict = {}
         for model in self.lmodel:
             rid     = model.getmetafield('RID') 
-            viscode = model.getmetafield('VISCODE')
-            imgid   = model.getmetafield('Image.Data.ID')
+
             if rid in sbjdict:
-                sbjdict[rid].append((viscode, imgid))
+                sbjdict[rid].append(model)
             else:
-                sbjdict[rid] = [(viscode, imgid)]
+                sbjdict[rid] = [model]
 
         return sbjdict
 

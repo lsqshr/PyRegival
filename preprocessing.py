@@ -53,55 +53,51 @@ def normalise(lmodel, dbpath,
     wf.connect(stdroi, 'out_file', stripper, 'in_file')
 
     if normalise_method == 'FSL':
-        normwrap = pe.Node(fsl.FLIRT(bins=640, cost_func='mutualinfo'), name='flirt')
-        normwrap.inputs.reference = normtemplatepath
-        normwrap.inputs.output_type = "NIFTI_GZ"       #stripper.inputs.padding = True
+        normwarp = pe.Node(fsl.FLIRT(bins=640, cost_func='mutualinfo'), name='flirt')
+        normwarp.inputs.reference = normtemplatepath
+        normwarp.inputs.output_type = "NIFTI_GZ"       #stripper.inputs.padding = True
+        normwarp.inputs.out_file = 'deformed.nii.gz'
         infield  = 'in_file'
         outfield = 'out_file'
     elif normalise_method == 'ANTS':
-        normwrap = pe.Node(antsIntroduction(), name='ants')
-        normwrap.inputs.reference_image = normtemplatepath
-        normwrap.inputs.max_iterations = [10, 10, 10]
-        normwrap.inputs.transformation_model = 'RA'
-        normwrap.inputs.ignore_exception = True
-        normwrap.inputs.num_threads = 4
+        normwarp = pe.Node(antsIntroduction(), name='ants')
+        normwarp.inputs.reference_image = normtemplatepath
+        normwarp.inputs.max_iterations = [10, 10, 10]
+        normwarp.inputs.transformation_model = 'RA'
+        normwarp.inputs.ignore_exception = True
+        normwarp.inputs.num_threads = 4
+        normwarp.inputs.output_prefix = ''
         infield  = 'input_image'
         outfield = 'output_file'
 
     # The input/output file spec were differnet between FSL and ANTS in nipype
-    wf.connect(stripper, 'out_file', normwrap, infield)
+    wf.connect(stripper, 'out_file', normwarp, infield)
     #wf.connect(inputidnode, 'subject_id', datasink, 'container')
-    wf.connect(normwrap, outfield, datasink, 'preprocessed')
+    wf.connect(normwarp, outfield, datasink, 'preprocessed')
 
     # Run workflow with all cpus available
     wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()})
 
 
-def transform(lmodel, dbpath, interval):
-    # Find out the pairs to be transformed [[fixed, moving], ]
-    transpairs = AdniMrCollection(lmodel).find_transform_pairs(interval)
-    
+def transform(lmodel, dbpath, transpairs):
+        
     # Make the workflow
-    imgidpairs = [(t[0][1], t[1][1]) for t in transpairs]
-    # DEBUG: Only 1 pair
-    #imgidpairs = [imgidpairs[0]]
-
     inputnode = pe.MapNode(interface=niu.IdentityInterface(fields=['fixedimgid', 'movingimgid', 'transid']),
                            name='inputnode',
                            iterfield = ['fixedimgid', 'movingimgid', 'transid'])
-    inputnode.inputs.fixedimgid  = [t[0] for t in imgidpairs]
-    inputnode.inputs.movingimgid = [t[1] for t in imgidpairs]
+    inputnode.inputs.fixedimgid  = [t[0].get_imgid() for t in transpairs]
+    inputnode.inputs.movingimgid = [t[1].get_imgid() for t in transpairs]
+    imgidpairs = zip(inputnode.inputs.fixedimgid, inputnode.inputs.movingimgid)
     inputnode.inputs.transid = ['%s-%s'% (t[0], t[1]) for t in imgidpairs]
 
     trans_datasource = pe.MapNode(interface=nio.DataGrabber(
                                          infields=['fixedimgid', 'movingimgid'],
-                                         outfields=['fixed_file', 
-                                         'moving_file']),
+                                         outfields=['fixed_file', 'moving_file']),
                                   name='trans_datasource', 
                                   iterfield = ['fixedimgid', 'movingimgid'])
     trans_datasource.inputs.base_directory = os.path.abspath(join(dbpath, 'results'))
     #print (trans_datasource.inputs.base_directory)
-    trans_datasource.inputs.template = 'preprocessed/_imgid_%s/ants_deformed.nii.gz'
+    trans_datasource.inputs.template = 'preprocessed/_imgid_%s/deformed.nii.gz'
     trans_datasource.inputs.template_args = dict(fixed_file=[['fixedimgid']],
                                                  moving_file=[['movingimgid']])
     trans_datasource.inputs.sort_filelist = True

@@ -1,3 +1,5 @@
+/graph.dot.png
+/graph.dot
 /play.py
 /preprocess/d3.js
 /preprocess/graph.json
@@ -17,3 +19,4 @@ __pychache__/*
 *mat
 *npy
 *swp
+crash*

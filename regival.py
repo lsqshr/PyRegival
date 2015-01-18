@@ -6,20 +6,21 @@ from nipype.interfaces.ants import ApplyTransforms
 from additional_nipype_interfaces import *
 from os.path import *
 import multiprocessing
+import itertools
 
 # Compare two different transforms
-# limgid: [[<sbj1a_imageid>], [<sbj1b_imageid>], [<sbj2a_imageid>], [<sbj2b_imageid>]]
-def transdiff(dbpath, limgid):
+def transdiff(dbpath, diffpairs):
+
     inputnode = pe.MapNode(interface=niu.IdentityInterface(fields=['sbj1a_imageid',
                                                                    'sbj1b_imageid',
                                                                    'sbj2a_imageid',
                                                                    'sbj2b_imageid']),
                            name='inputnode',
                            iterfield = ['sbj1a_imageid', 'sbj1b_imageid', 'sbj2a_imageid', 'sbj2b_imageid'])
-    inputnode.inputs.sbj1a_imageid = limgid[0]
-    inputnode.inputs.sbj1b_imageid = limgid[1]
-    inputnode.inputs.sbj2a_imageid = limgid[2]
-    inputnode.inputs.sbj2b_imageid = limgid[3]
+    inputnode.inputs.sbj1a_imageid = [ diff[0][0].get_imgid() for diff in diffpairs ]
+    inputnode.inputs.sbj1b_imageid = [ diff[0][1].get_imgid() for diff in diffpairs ]
+    inputnode.inputs.sbj2a_imageid = [ diff[1][0].get_imgid() for diff in diffpairs ]
+    inputnode.inputs.sbj2b_imageid = [ diff[1][1].get_imgid() for diff in diffpairs ]
 
     trans_datasource = pe.MapNode(interface=nio.DataGrabber(
                                          infields=['sbj1a_imageid', 'sbj1b_imageid', 'sbj2a_imageid', 'sbj2b_imageid'],
@@ -28,9 +29,9 @@ def transdiff(dbpath, limgid):
                                   iterfield = ['sbj1a_imageid', 'sbj1b_imageid', 'sbj2a_imageid', 'sbj2b_imageid'])
     trans_datasource.inputs.base_directory = os.path.abspath(join(dbpath, 'results'))
     trans_datasource.inputs.template = '*'
-    trans_datasource.inputs.field_template = dict(sbj1a_image   = join('preprocessed','_imgid_%s','ants_deformed.nii.gz'),
-                                                  sbj1b_image   = join('preprocessed','_imgid_%s','ants_deformed.nii.gz'),
-                                                  sbj2a_image   = join('preprocessed','_imgid_%s','ants_deformed.nii.gz'),
+    trans_datasource.inputs.field_template = dict(sbj1a_image   = join('preprocessed','_imgid_%s','deformed.nii.gz'),
+                                                  sbj1b_image   = join('preprocessed','_imgid_%s','deformed.nii.gz'),
+                                                  sbj2a_image   = join('preprocessed','_imgid_%s','deformed.nii.gz'),
                                                   transform_2ab = join('transformed','%s-%s','SyNQuick', 'transid*', 'out1Warp.nii.gz')                                            )
     trans_datasource.inputs.template_args = dict(sbj1a_image   = [['sbj1a_imageid']],
                                                  sbj1b_image   = [['sbj1b_imageid']],
@@ -58,9 +59,13 @@ def transdiff(dbpath, limgid):
     resamplenode.inputs.default_value = 0
     resamplenode.inputs.invert_transform_flags = [False]
 
-    similaritynode = pe.MapNode(interface=Similarity(), name='similarity', iterfield=['volume1', 'volume2'])
+    similaritynode = pe.MapNode(interface=Similarity(), name='similarity', 
+                                iterfield=['volume1', 'volume2'])
     similaritynode.inputs.metric = 'cr'
-    similaritynode.ignore_exception = True
+    similaritynode.ignore_exception = False 
+
+    outputnode = pe.Node(interface=niu.IdentityInterface(fields=['similarity']),
+                            name='transdiff_outputnode')
 
     # build the workflow
     wf = pe.Workflow(name="transform")
@@ -77,11 +82,12 @@ def transdiff(dbpath, limgid):
                 (trans_datasource, resamplenode, [('sbj1a_image', 'input_image')]),
                 (trans_datasource, resamplenode, [('sbj1b_image', 'reference_image')]),
                 (resamplenode, similaritynode, [('output_image', 'volume1')]),
-                (trans_datasource, similaritynode, [('sbj1b_image', 'volume2')])
+                (trans_datasource, similaritynode, [('sbj1b_image', 'volume2')]),
+                (similaritynode, outputnode, [('similarity', 'similarity')]),
                 ])
     # Run workflow with all cpus available
-    wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()})
-
+    g = wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()})
+    return g 
     
 def templateweighting():
     pass
