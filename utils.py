@@ -65,7 +65,7 @@ def viewslice(file):
 
 # A collection tool class to perform some grouping and searching of the adnimriimg models
 class AdniMrCollection(object):
-    def __init__(self, lmodel):
+    def __init__(self, lmodel=None):
         self.lmodel = lmodel 
 
     # Return Image.Data.ID pairs [[fixed_img_id1, moving_img_id1], [fixed_img_id2, moving_img_id2],...]
@@ -75,17 +75,16 @@ class AdniMrCollection(object):
 
         # Find the intervals with the specific lengths
         for key, sbj_imglist in sbjdict.iteritems():
-            #sbj_imglist = sbjdict[key]
-            sbj_imglist.sort(key=lambda x: x.getmetafield('VISCODE'))
+            viscode_sortlist  = sorted(sbj_imglist, key=lambda x: x.getmetafield('VISCODE'))
 
-            #print [ sbj[0] for sbj in sbj_imglist ] # Check the sorting
-
-            for i in xrange(len(sbj_imglist)):
-                for j in xrange(i+1,len(sbj_imglist)):
-                    viscode1 = int(sbj_imglist[i].getmetafield('VISCODE').replace('m', ''))
-                    viscode2 = int(sbj_imglist[j].getmetafield('VISCODE').replace('m', ''))
+            for i in xrange(len(viscode_sortlist)):
+                for j in xrange(i+1,len(viscode_sortlist)):
+                    viscode1 = int(viscode_sortlist[i].getmetafield('VISCODE').replace('m', ''))
+                    viscode2 = int(viscode_sortlist[j].getmetafield('VISCODE').replace('m', ''))
                     if (viscode2 - viscode1) in interval:
-                        transpairs.append((sbj_imglist[j], sbj_imglist[i]))
+                        transpairs.append((viscode_sortlist[j], viscode_sortlist[i], 
+                                          viscode2 - viscode1, viscode1, viscode2, 
+                                          viscode_sortlist[i].getmetafield('RID')))
 
         return transpairs
 
@@ -102,4 +101,35 @@ class AdniMrCollection(object):
 
         return sbjdict
 
+    def group_pairs(self, pairs=None, interval=[6,12]):
+        if pairs == None:
+            pairs = self.find_transform_pairs(interval)
 
+        # Group pairs
+        sbjdict = {}
+        for pair in pairs:
+            rid = pair[-1]
+
+            if rid in sbjdict:
+                sbjdict[rid].append(pair)
+            else:
+                sbjdict[rid] = [pair]
+
+        return sbjdict
+
+    def filter_no_followup_pairs(self, pairs=None, interval=[6,12]):
+        sbjdict = group_pairs(pairs, interval)
+
+        elligible_pairs = []
+
+        for sbjid, translist in sbjdict.iteritems():
+            if len(translist) < 2: 
+                continue
+
+            lviscode1 = [t[3] for t in translist]
+
+            for trans in translist:
+                # see viscode 2 has a matching viscode1 means it has at list one follow up transforms
+                if trans[4] in lviscode1:
+                    elligible_pairs.append(trans)
+        return elligible_pairs
