@@ -12,6 +12,7 @@ import multiprocessing
 from utils import *
 from additional_nipype_interfaces import *
 import itertools
+import pickle
 
 class MrTemplateBuilder (object): 
 

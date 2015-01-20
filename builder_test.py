@@ -53,7 +53,7 @@ time10 = time.time()
 # Make the time log
 nsbj = len(ladnimr)
 log  = 'Test Time log: %d Subject %d Images\n' % (5, nsbj)
-log  += 'Get MR list took\t%f\n' % time2-time1
+log  += 'Get MR list took\t%f\n' % (time2-time1)
 log  += 'FSL Normalisation took\t%f;\t%f Each\n' % (time2-time1, (time2-time1)/nsbj)
 log  += 'FSL Normalisation took\t%f;\t%f Each\n' % (time4-time3, (time4-time3)/nsbj)
 log  += 'ANTS Normalisation took\t%f;\t%f Each\n' % (time5-time4, (time5-time4)/nsbj)
