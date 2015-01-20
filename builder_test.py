@@ -64,4 +64,4 @@ print log
 with open('test_log.txt', 'w') as f:
 	f.write(log)
 
-assert builder.load_ptemplate('ptemplate.pkl') == ptemplate
+#assert builder.load_ptemplate('ptemplate.pkl') == ptemplate

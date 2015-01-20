@@ -50,13 +50,13 @@ class MrTemplateBuilder (object):
         pred_template['corr'] = dict(zip(diffs, similarity)) 
         pred_template['lmodel'] = lmodel 
 
-        with open('ptemplate.pkl', 'wb') as outfile:
+        with open(join(dbpath, 'ptemplate.pkl'), 'wb') as outfile:
             pickle.dump(pred_template, outfile)
 
         return pred_template
 
 
-    def load_ptemplate(self, filepath):
+    def load_ptemplate(self, filepath='ptemplate.pkl'):
         with open(filepath, 'rb') as infile:
             ptemplate = pickle.load(infile)
         return ptemplate
@@ -213,9 +213,9 @@ class MrTemplateBuilder (object):
                                       iterfield = ['sbj1a_imageid', 'sbj1b_imageid', 'sbj2a_imageid', 'sbj2b_imageid'])
         trans_datasource.inputs.base_directory = os.path.abspath(join(self.dbpath, 'results'))
         trans_datasource.inputs.template = '*'
-        trans_datasource.inputs.field_template = dict(sbj1a_image   = join('preprocessed','_imgid_%s','deformed.nii.gz'),
-                                                      sbj1b_image   = join('preprocessed','_imgid_%s','deformed.nii.gz'),
-                                                      sbj2a_image   = join('preprocessed','_imgid_%s','deformed.nii.gz'),
+        trans_datasource.inputs.field_template = dict(sbj1a_image   = join('preprocessed','_imgid_%s','norm_deformed.nii.gz'),
+                                                      sbj1b_image   = join('preprocessed','_imgid_%s','norm_deformed.nii.gz'),
+                                                      sbj2a_image   = join('preprocessed','_imgid_%s','norm_deformed.nii.gz'),
                                                       transform_2ab = join('transformed','%s-%s','SyNQuick', 'transid*', 'out1Warp.nii.gz')                                            )
         trans_datasource.inputs.template_args = dict(sbj1a_image   = [['sbj1a_imageid']],
                                                      sbj1b_image   = [['sbj1b_imageid']],
@@ -271,4 +271,4 @@ class MrTemplateBuilder (object):
                     ])
         # Run workflow with all cpus available
         g = wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()})
-        return g 
+        return g

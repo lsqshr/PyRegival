@@ -59,9 +59,11 @@ def get_adni_mrlist(dbpath):
 
     return ladnimr
 
+
 def viewslice(file):
     path, fname = split(file)
     subprocess.Popen(["tkmedit",'-f', file])
+
 
 # A collection tool class to perform some grouping and searching of the adnimriimg models
 class AdniMrCollection(object):
@@ -88,6 +90,7 @@ class AdniMrCollection(object):
 
         return transpairs
 
+
     # Group models into an RID dictionary <RID, [(VISCODE1, Image.Data.ID1), ...]> 
     def group_sbj(self):
         sbjdict = {}
@@ -100,6 +103,7 @@ class AdniMrCollection(object):
                 sbjdict[rid] = [model]
 
         return sbjdict
+
 
     def group_pairs(self, pairs=None, interval=[6,12]):
         if pairs == None:
@@ -117,8 +121,9 @@ class AdniMrCollection(object):
 
         return sbjdict
 
-    def filter_no_followup_pairs(self, pairs=None, interval=[6,12]):
-        sbjdict = group_pairs(pairs, interval)
+
+    def filter_elligible_pairs(self, pairs=None, interval=[6,12]):
+        sbjdict = self.group_pairs(pairs, interval)
 
         elligible_pairs = []
 
@@ -132,4 +137,24 @@ class AdniMrCollection(object):
                 # see viscode 2 has a matching viscode1 means it has at list one follow up transforms
                 if trans[4] in lviscode1:
                     elligible_pairs.append(trans)
+
         return elligible_pairs
+    
+
+    def find_followups(self, pairs, interval):
+        search_sbjdict = self.group_pairs(pairs, interval)
+        allpairs = find_transform_pairs(self, interval) # Find all pairs
+        all_sbjdict = self.group_pairs(allpairs, interval)
+        followupdict = {}
+
+        for sbjid, translist in sbjdict.iteritems():
+            for target in translist:
+                allsbjlist = all_sbjdict[sbjid]
+                followup = [p for p in allsbjlist if p[3] == target[4] and p[2] in interval]
+                if len(followup) == 0:
+                    raise Exception('0 followup found for RID %s VISCODE %d-%d' % (p[-1], p[3], p[4]))
+                followupdict[target] = followup
+        
+        return [followupdict[x] for x in pairs]        
+
+
