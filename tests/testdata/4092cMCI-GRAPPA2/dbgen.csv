@@ -1,5 +1,0 @@
-"","RID","VISCODE","EXAMDATE","Image.Data.ID","Subject","Group","Sex","Age","Visit","Modality","Description","Type","Format","Downloaded","siteid","DXCHANGE"
-"5",4092,"m0",2011-06-24,241691,"116_S_4092","Patient",FALSE,82,22,"MRI","MPRAGE GRAPPA2","Original","DCM","10/23/2014",116,"Stable: NL"
-"2",4092,"m06",2012-01-13,278831,"116_S_4092","Patient",FALSE,82,25,"MRI","MPRAGE GRAPPA2","Original","DCM","10/23/2014",116,"Stable: NL"
-"3",4092,"m12",2012-07-24,322535,"116_S_4092","Patient",FALSE,83,28,"MRI","MPRAGE GRAPPA2","Original","DCM","10/23/2014",116,"Conversion: NL to MCI"
-"4",4092,"m24",2013-07-22,382146,"116_S_4092","Patient",FALSE,84,30,"MRI","MPRAGE GRAPPA2","Original","DCM","10/23/2014",116,"Stable: MCI"

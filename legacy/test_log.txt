@@ -1,0 +1,8 @@
+Test Time log: 5 Subject 10 Images
+Get MR list took	0.332928
+FSL Normalisation took	0.332928;	0.033293 Each
+FSL Normalisation took	306.968406;	30.696841 Each
+ANTS Normalisation took	4095.040698;	409.504070 Each
+Inter-subject Transform took	68.272882;	13.654576 Each
+Transdiff took	126.407931;	5.056317 Each
+Whole Template Build Took	685.980319

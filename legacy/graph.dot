@@ -1,0 +1,25 @@
+digraph transform{
+  label="transform";
+  transform_inputnode[label="inputnode (utility)"];
+  transform_compose_datasource[label="compose_datasource (io)"];
+  transform_transnode[label="transnode"];
+  transform_compose[label="compose"];
+  transform_resample[label="resample (ants)"];
+  transform_similarity[label="similarity (metrics)"];
+  transform_transdiff_outputnode[label="transdiff_outputnode (utility)"];
+  transform_inputnode -> transform_compose_datasource;
+  transform_inputnode -> transform_compose_datasource;
+  transform_inputnode -> transform_compose_datasource;
+  transform_inputnode -> transform_compose_datasource;
+  transform_compose_datasource -> transform_transnode;
+  transform_compose_datasource -> transform_transnode;
+  transform_compose_datasource -> transform_similarity;
+  transform_compose_datasource -> transform_resample;
+  transform_compose_datasource -> transform_resample;
+  transform_compose_datasource -> transform_compose;
+  transform_compose_datasource -> transform_compose;
+  transform_transnode -> transform_compose;
+  transform_compose -> transform_resample;
+  transform_resample -> transform_similarity;
+  transform_similarity -> transform_transdiff_outputnode;
+}

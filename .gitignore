@@ -1,3 +1,4 @@
+tests/testdata/*
 /ptemplate.pkl
 /graph.dot.png
 /graph.dot

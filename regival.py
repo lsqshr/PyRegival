@@ -9,7 +9,7 @@ from nipype.algorithms.metrics import Similarity
 from os.path import * 
 import os
 import multiprocessing
-from utils import *
+from models import *
 from additional_nipype_interfaces import *
 import itertools
 import pickle
@@ -34,7 +34,7 @@ class MrRegival (object):
 
         self.normalise(normtemplatepath, normalise_method)
         transpairs = AdniMrCollection(lmodel).find_transform_pairs(intervals)
-        self.transform(lmodel, transpairs)
+        self.transform(transpairs, lmodel)
         diffs = list(itertools.product(transpairs, repeat=2))
         # Make diffs to a {fid1,mid1,fid2,mid2: (interval1, interval2)} dict
         # Structure of diff itself: ((fid1,mid1, interval1), (fid2,mid2, interval2))
@@ -49,7 +49,7 @@ class MrRegival (object):
         self.pred_template['corr'] = dict(zip(diffs, similarity)) 
         self.pred_template['lmodel'] = lmodel 
 
-        with open(join(dbpath, 'ptemplate.pkl'), 'wb') as outfile:
+        with open(join(self.dbpath, 'ptemplate.pkl'), 'wb') as outfile:
             pickle.dump(self.pred_template, outfile)
 
         return self.pred_template
@@ -142,7 +142,7 @@ class MrRegival (object):
                                iterfield = ['fixedimgid', 'movingimgid', 'transid'])
         inputnode.inputs.fixedimgid  = [t.fixedimage.getimgid() for t in transpairs]
         inputnode.inputs.movingimgid = [t.movingimage.getimgid() for t in transpairs]
-        imgidpairs = zip(inputnode.inputs.fixedimgid, inputnode.inputs.movingimgid)
+        imgidpairs = zip(inputnode.inputs.movingimgid, inputnode.inputs.fixedimgid)
         inputnode.inputs.transid = ['%s-%s'% (t[0], t[1]) for t in imgidpairs]
 
         trans_datasource = pe.MapNode(interface=nio.DataGrabber(
@@ -302,14 +302,18 @@ class MrRegival (object):
         targetidx = elligible_pairs.index(targetpair)
         matrow = simmat[targetidx, :]
         matcol = simmat[:, targetidx]
-        # Assign itself with similairity of 0 in the matrix to ignore it when merge 
-        matcol[targetidx] = matrow[targetidx] = 0
+
+        # Assign itself with similairity of 0 in the matrix to ignore it when merge
+        allrid = [p.fixedimage.getmetafield['RID'] for p in elligible_pairs]
+        targetrid = targetpair.fixedimage.getmetafield('RID')
+        all_target_sbj_idx = [i for i, x in enumerate(allrid) if x == targetrid]
+        matcol[targetidx] = matrow[all_target_sbj_idx] = 0
+
         #linterval = np.array([p.fixed_image.getviscode() - p.moving_image.getviscode()
         #                      for p in elligible_pairs])
 
         #np.abs(linterval - targetpair[2])
-
-        # calculate the row&column weights distribution considering the interval
+        # Calculate the row&column weights distribution considering the interval
         dcol = 1 - matrow
         drow = 1 - drow
         ecol = exp(-(dcol/t))
