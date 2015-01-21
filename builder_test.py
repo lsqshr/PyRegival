@@ -2,23 +2,23 @@ from os.path import *
 from utils import *
 from preprocessing import *
 import csv, time
-from mrtemplate import *
+from regival import *
 import time
 
 # Test individual workflows
 time1 = time.time()
 #dbpath = join('tests', "testdata", "4092cMCI-GRAPPA2")
 dbpath = join('tests', "testdata", "5ADNI-Patients")
-ladnimr = get_adni_mrlist(dbpath)
+ladnimr = AdniMrCollection(dbpath=dbpath).getmrlist()
 time2 = time.time()
 
 # Test Template Builder
-builder = MrTemplateBuilder(dbpath)
+builder = MrRegival(dbpath)
 
 time3 = time.time()
 builder.normalise(ladnimr, normalise_method='FSL') 
 time4 = time.time()
-builder.normalise(ladnimr, normalise_method='ANTS') 
+#builder.normalise(ladnimr, normalise_method='ANTS') 
 time5 = time.time()
 
 # Find out the pairs to be transformed [[fixed, moving], ]
@@ -45,7 +45,7 @@ for node in g.nodes():
     	assert s[2] > 0.98 and s[5] > 0.98
 
 # Test the whole thing all together 
-builder = MrTemplateBuilder(dbpath)
+builder = MrRegival(dbpath)
 time9 = time.time()
 ptemplate = builder.build(ladnimr, normalise_method='FSL')
 time10 = time.time()

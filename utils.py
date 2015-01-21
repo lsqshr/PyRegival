@@ -3,7 +3,7 @@ import subprocess
 import re
 from os.path import * 
 import csv
-from models import adnimrimg
+from models import *
 
 
 # Traverse the dbpath for the files with provided suffix
@@ -28,38 +28,6 @@ def find_adni_imgid(fname):
     return cleanmatch[0] if len(cleanmatch) == 1 else None
 
 
-def get_adni_mrlist(dbpath):
-    # Find all images stated in the dbgen.csv in the db path
-    # Construct adnimrimg list
-    limg = traverse_for_file(dbpath, '.nii')
-    limgid = [find_adni_imgid(img[1]) for img in limg ]
-    ladnimr = []
-
-    # read in the dbgen.db
-    with open(join(dbpath, 'dbgen.csv')) as f:
-      r = csv.reader(f, delimiter=',')
-      header = next(r)
-      #imgididx = header.index('Image.Data.ID')
-
-      for row in r:
-        meta = {}
-        for i, col in enumerate(row):
-            meta[header[i]] = col
-
-        imgid = meta['Image.Data.ID']
-        '''
-        print('=====limgid==============')
-        print(limgid) 
-        print('===================')
-        '''
-
-        imgf = limg[ limgid.index(imgid) ]
-        filepath = join(imgf[0], imgf[1])
-        ladnimr.append(adnimrimg(meta, filepath))
-
-    return ladnimr
-
-
 def viewslice(file):
     path, fname = split(file)
     subprocess.Popen(["tkmedit",'-f', file])
@@ -67,13 +35,54 @@ def viewslice(file):
 
 # A collection tool class to perform some grouping and searching of the adnimriimg models
 class AdniMrCollection(object):
-    def __init__(self, lmodel=None):
-        self.lmodel = lmodel 
+
+    def __init__(self, ladnimr=None, dbpath=None):
+        if ladnimr is not None:
+            self._ladnimr = ladnimr 
+        elif dbpath is not None:
+            self._ladnimr = self.build_adni_mrlist(dbpath)
+
+
+    def build_adni_mrlist(self, dbpath):
+        # Find all images stated in the dbgen.csv in the db path
+        # Construct adnimrimg list
+        limg = traverse_for_file(dbpath, '.nii')
+        limgid = [find_adni_imgid(img[1]) for img in limg ]
+        self._ladnimr = []
+
+        # read in the dbgen.db
+        with open(join(dbpath, 'dbgen.csv')) as f:
+          r = csv.reader(f, delimiter=',')
+          header = next(r)
+          #imgididx = header.index('Image.Data.ID')
+
+          for row in r:
+            meta = {}
+            for i, col in enumerate(row):
+                meta[header[i]] = col
+
+            imgid = meta['Image.Data.ID']
+            '''
+            print('=====limgid==============')
+            print(limgid) 
+            print('===================')
+            '''
+
+            imgf = limg[ limgid.index(imgid) ]
+            filepath = join(imgf[0], imgf[1])
+            self._ladnimr.append(adnimrimg(meta, filepath))
+
+        return self._ladnimr
+
+
+    def getmrlist(self):
+        return self._ladnimr
+
 
     # Return Image.Data.ID pairs [[fixed_img_id1, moving_img_id1], [fixed_img_id2, moving_img_id2],...]
     def find_transform_pairs(self, interval=[6,12]):
         sbjdict = self.group_sbj()
-        transpairs = []
+        pairs = []
 
         # Find the intervals with the specific lengths
         for key, sbj_imglist in sbjdict.iteritems():
@@ -81,20 +90,18 @@ class AdniMrCollection(object):
 
             for i in xrange(len(viscode_sortlist)):
                 for j in xrange(i+1,len(viscode_sortlist)):
-                    viscode1 = int(viscode_sortlist[i].getmetafield('VISCODE').replace('m', ''))
-                    viscode2 = int(viscode_sortlist[j].getmetafield('VISCODE').replace('m', ''))
+                    viscode1 = viscode_sortlist[i].getviscode()
+                    viscode2 = viscode_sortlist[j].getviscode()
                     if (viscode2 - viscode1) in interval:
-                        transpairs.append((viscode_sortlist[j], viscode_sortlist[i], 
-                                          viscode2 - viscode1, viscode1, viscode2, 
-                                          viscode_sortlist[i].getmetafield('RID')))
+                        pairs.append(transpair(viscode_sortlist[j], viscode_sortlist[i]))
 
-        return transpairs
+        return pairs
 
 
     # Group models into an RID dictionary <RID, [(VISCODE1, Image.Data.ID1), ...]> 
     def group_sbj(self):
         sbjdict = {}
-        for model in self.lmodel:
+        for model in self._ladnimr:
             rid     = model.getmetafield('RID') 
 
             if rid in sbjdict:
@@ -112,7 +119,7 @@ class AdniMrCollection(object):
         # Group pairs
         sbjdict = {}
         for pair in pairs:
-            rid = pair[-1]
+            rid = pair.fixedimage.getmetafield('RID')
 
             if rid in sbjdict:
                 sbjdict[rid].append(pair)
@@ -128,14 +135,14 @@ class AdniMrCollection(object):
         elligible_pairs = []
 
         for sbjid, translist in sbjdict.iteritems():
-            if len(translist) < 2: 
+            if len(translist) < 3: 
                 continue
 
-            lviscode1 = [t[3] for t in translist]
+            l_moving_viscode = [t.movingimage.getviscode() for t in translist]
 
             for trans in translist:
                 # see viscode 2 has a matching viscode1 means it has at list one follow up transforms
-                if trans[4] in lviscode1:
+                if trans.fixedimage.getviscode() in l_moving_viscode:
                     elligible_pairs.append(trans)
 
         return elligible_pairs
@@ -150,11 +157,13 @@ class AdniMrCollection(object):
         for sbjid, translist in sbjdict.iteritems():
             for target in translist:
                 allsbjlist = all_sbjdict[sbjid]
-                followup = [p for p in allsbjlist if p[3] == target[4] and p[2] in interval]
+                followup = [p for p in allsbjlist 
+                                  if p.movingimage.getviscode() == target.fixedimage.getviscode()
+                                     and p.getinterval() in interval]
                 if len(followup) == 0:
-                    raise Exception('0 followup found for RID %s VISCODE %d-%d' % (p[-1], p[3], p[4]))
+                    raise Exception('0 followup found for RID %s VISCODE %d-%d' % (target.fixedimage.getmetafield('RID'), 
+                                                                                   target.movingimage.getviscode(),
+                                                                                   target.fixedimage.getviscode()))
                 followupdict[target] = followup
         
         return [followupdict[x] for x in pairs]        
-
-

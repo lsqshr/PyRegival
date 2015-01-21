@@ -11,7 +11,7 @@ print('limg:')
 print(limg)
 assert len(limg) == 5, 'Wrong number of nii files found : %d\n' % len(limg)
 
-mrlist = get_adni_mrlist(dbpath)
+mrlist = build_adni_mrlist(dbpath)
 assert len(mrlist) == 4
 for mr in mrlist:
 	filepath = mr.getfilepath()
@@ -26,7 +26,7 @@ for mr in mrlist:
 ##################
 # Test Find Transform Pairs
 dbpath = join('tests', "testdata", "4092cMCI-GRAPPA2")
-ladnimr = get_adni_mrlist(dbpath)
+ladnimr = build_adni_mrlist(dbpath)
 transpairs = AdniMrCollection(ladnimr).find_transform_pairs(interval=[6])
 viscodepairs = [ (int(p[1][0].replace('m', '')), int(p[0][0].replace('m', ''))) 
   for p in transpairs]

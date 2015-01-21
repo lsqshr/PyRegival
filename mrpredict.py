@@ -25,16 +25,19 @@ class MrPredictor(object):
         '''
 
         # Convert the similarity dict to a matrix with the order of the mrid pairs
-        simmatrix, elligible_pairs = self._convert_ptemplate2matrix(interval=targetpair[2]) 
-        print elligible_pairs
+        simmatrix, elligible_pairs = self._convert_ptemplate2matrix(interval=targetpair.getinterval()) 
         # TODO: If this subject is not in the template, add this subject to the template
 
         # Find the column and row of this subject, 
         targetidx = elligible_pairs.index(targetpair)
         matrow = simmat[targetidx, :]
         matcol = simmat[:, targetidx]
-        linterval = np.array([p[2] for p in elligible_pairs])
-        np.abs(linterval - targetpair[2])
+        # Assign itself with similairity of 0 in the matrix to ignore it when merge 
+        matcol[targetidx] = matrow[targetidx] = 0
+        #linterval = np.array([p.fixed_image.getviscode() - p.moving_image.getviscode()
+        #                      for p in elligible_pairs])
+
+        #np.abs(linterval - targetpair[2])
 
         # calculate the row&column weights distribution considering the interval
         dcol = 1 - matrow
@@ -74,10 +77,10 @@ class MrPredictor(object):
                                name='inputnode',
                                iterfield = ['transa_imageid', 'transb_imageid'])
 
-        inputnode.inputs.transa_imageid = [ pair[1] for pair in pairs ]
-        inputnode.inputs.transb_imageid = [ pair[0] for pair in pairs ]
-        inputnode.inputs.targeta_imageid = targetpair[1]
-        inputnode.inputs.targetb_imageid = targetpair[0]
+        inputnode.inputs.transa_imageid = [ pair.movingimage.getimgid() for pair in pairs ]
+        inputnode.inputs.transb_imageid = [ pair.fixedimage.getimgid() for pair in pairs ]
+        inputnode.inputs.targeta_imageid = targetpair.movingimage.getimgid()
+        inputnode.inputs.targetb_imageid = targetpair.fixedimage.getimgid()
 
         # Grab the transforms by id
         pred_datasource = pe.MapNode(interface=nio.DataGrabber(
