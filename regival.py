@@ -24,7 +24,7 @@ class MrRegival (object):
 
     def build(self, lmodel = None, normtemplatepath='/usr/share/fsl/data/standard/MNI152_T1_2mm_brain.nii.gz', 
                        normalise_method='ANTS',
-                       intervals=[12]):
+                       interval=[12]):
         '''
         lmodel: a list of adnimrimg objects
         normtemplatepath: the template used by the normalisation
@@ -35,12 +35,12 @@ class MrRegival (object):
 
         self._collection.filtermodels(interval) # Only keep the usable cases
         self.normalise(normtemplatepath, normalise_method)
-        transpairs = AdniMrCollection(lmodel).find_transform_pairs(intervals)
+        transpairs = AdniMrCollection(lmodel).find_transform_pairs(interval)
         self.transform(transpairs)
         diffs = list(itertools.product(transpairs, repeat=2))
         # Make diffs to a {fid1,mid1,fid2,mid2: (interval1, interval2)} dict
         # Structure of diff itself: ((fid1,mid1, interval1), (fid2,mid2, interval2))
-        g = self.transdiff(diffs) # transdiff does not consider the different intervals
+        g = self.transdiff(diffs) # transdiff does not consider the different interval
 
         for node in g.nodes():
             if node.name == 'similarity':

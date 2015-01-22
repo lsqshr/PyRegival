@@ -5,6 +5,7 @@ import csv
 from sets import Set
 import itertools
 
+
 # Model for general MR image subject
 class mrimg (object):
 
@@ -63,30 +64,35 @@ class transformpair (object):
 # A collection tool class to perform some grouping and searching of the adnimriimg models
 class AdniMrCollection(object):
 
-    def __init__(self, ladnimr=None, dbpath=None):
+    def __init__(self, ladnimr=None, dbpath=None, regendb=True):
         self.dbpath = dbpath
         if ladnimr is not None:
             self._ladnimr = ladnimr 
         elif dbpath is not None:
+            if regendb:
+                self.gendb()
+            if not exists(join(dbpath, 'dbgen.csv')):
+                raise IOError('dbgen.csv not found in %s. Pls set regendb=True' % self.dbpath)
             self._ladnimr = self.build_adni_mrlist(dbpath)
 
 
     def gendb(self, dbpath=None, csvpath=None):
         '''
-        Translate the row ADNI csv image list you download from loni repo to our csv template
+        Translate the row ADNI csv image list you download from loni repo to our csv template.
         It will require R language to be installed on your computer
         and the ADNIMERGE package which can be downloaded from ADNI repo
         '''
         if dbpath is None:
             dbpath = self.dbpath
         if csvpath is None:
-            csvpath = join(split(self.dbpath)[0], 'db.csv')
+            csvpath = join(self.dbpath, 'db.csv')
+        csvpath = abspath(csvpath)
 
         if os.path.exists(csvpath): # os.path.exists can recognise spaces in paths
             os.system("Rscript %s %s %s" % (join(os.path.dirname(os.path.realpath(__file__)),\
                         'dbgen.r'), dbpath, csvpath))
         else:
-            print "db.csv not found in %s" % (dbpath)
+            raise IOError ("db.csv not found at %s" % csvpath)
 
 
     def filtermodels(self, interval=[6,12]):
