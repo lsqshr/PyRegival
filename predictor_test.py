@@ -19,5 +19,5 @@ else:
 	reg.load_ptemplate(join(dbpath, 'ptemplate.pkl'))
 
 pairs = reg.getcollection().find_transform_pairs(interval=[12])
-targetpair = pairs[0]
-reg.predict(targetpair, real_followup='204131', option='change')
+targetpair = next(p for p in pairs if p.movingimage.getimgid()=='39583')
+reg.predict(targetpair, real_followup='102756', option='change')

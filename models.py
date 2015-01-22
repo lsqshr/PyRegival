@@ -2,6 +2,8 @@ from os.path import *
 import os
 import re
 import csv
+from sets import Set
+import itertools
 
 # Model for general MR image subject
 class mrimg (object):
@@ -27,6 +29,12 @@ class mrimg (object):
 
     def getfilepath(self):
         return abspath(self._filepath)
+
+    def getmetadict(self):
+        return self._meta
+
+    def __eq__(self, other):
+        return self._imgid == other.getimgid()
 
 
 # Model for ADNI MR image which defined by the merged csv table
@@ -56,15 +64,50 @@ class transformpair (object):
 class AdniMrCollection(object):
 
     def __init__(self, ladnimr=None, dbpath=None):
+        self.dbpath = dbpath
         if ladnimr is not None:
             self._ladnimr = ladnimr 
         elif dbpath is not None:
             self._ladnimr = self.build_adni_mrlist(dbpath)
 
 
+    def gendb(self, dbpath=None, csvpath=None):
+        '''
+        Translate the row ADNI csv image list you download from loni repo to our csv template
+        It will require R language to be installed on your computer
+        and the ADNIMERGE package which can be downloaded from ADNI repo
+        '''
+        if dbpath is None:
+            dbpath = self.dbpath
+        if csvpath is None:
+            csvpath = join(split(self.dbpath)[0], 'db.csv')
+
+        if os.path.exists(csvpath): # os.path.exists can recognise spaces in paths
+            os.system("Rscript %s %s %s" % (join(os.path.dirname(os.path.realpath(__file__)),\
+                        'dbgen.r'), dbpath, csvpath))
+        else:
+            print "db.csv not found in %s" % (dbpath)
+
+
+    def filtermodels(self, interval=[6,12]):
+        '''
+        Only keep the useable models with transformable pairs within the given interval
+        '''
+        epairs = self.filter_elligible_pairs(interval=interval)
+        emodels = [ p.fixedimage for p in epairs ] + [ p.movingimage for p in epairs ]
+        fpairs = self.find_followups(epairs, interval=interval)
+        fmodels = [ p.fixedimage for p in fpairs ] + [ p.movingimage for p in fpairs ]
+
+        self._ladnimr = list(Set(emodels+fmodels))
+
+        return self._ladnimr
+
+
     def build_adni_mrlist(self, dbpath):
-        # Find all images stated in the dbgen.csv in the db path
-        # Construct adnimrimg list
+        '''
+        Find all images stated in the dbgen.csv in the db path
+        Construct adnimrimg list
+        '''
         limg = self._traverse_for_file(dbpath, '.nii')
         limgid = [self._find_adni_imgid(img[1]) for img in limg ]
         self._ladnimr = []
@@ -81,11 +124,6 @@ class AdniMrCollection(object):
                 meta[header[i]] = col
 
             imgid = meta['Image.Data.ID']
-            '''
-            print('=====limgid==============')
-            print(limgid) 
-            print('===================')
-            '''
 
             imgf = limg[ limgid.index(imgid) ]
             filepath = join(imgf[0], imgf[1])
@@ -148,29 +186,29 @@ class AdniMrCollection(object):
         return sbjdict
 
 
-    def filter_elligible_pairs(self, pairs=None, interval=[6,12]):
+    def filter_elligible_pairs(self, pairs=None, interval=[12]):
         sbjdict = self.group_pairs(pairs, interval)
 
         elligible_pairs = []
 
         for sbjid, translist in sbjdict.iteritems():
-            if len(translist) < 3: 
-                continue
-
             l_moving_viscode = [t.movingimage.getviscode() for t in translist]
-
-            for trans in translist:
-                # see viscode 2 has a matching viscode1 means it has at list one follow up transforms
-                if trans.fixedimage.getviscode() in l_moving_viscode:
-                    elligible_pairs.append(trans)
+            # See viscode 2 has a matching viscode1 means it has 
+            # at list one follow up transforms
+            matched = [t for t in translist if t.fixedimage.getviscode()
+                                               in l_moving_viscode] 
+            #print 'matched:', ['sbjid: %s  trans: %s-%s' % (m.fixedimage.getmetafield('RID'), m.movingimage.getimgid(), m.fixedimage.getimgid())
+            #                    for  m in matched]
+            elligible_pairs += matched
 
         return elligible_pairs
     
 
     def find_followups(self, pairs, interval):
         search_sbjdict = self.group_pairs(pairs, interval)
-        allpairs = find_transform_pairs(self, interval) # Find all pairs
+        allpairs = self.find_transform_pairs(interval=interval) # Find all pairs
         all_sbjdict = self.group_pairs(allpairs, interval)
+        sbjdict = self.group_pairs(pairs, interval)
         followupdict = {}
 
         for sbjid, translist in sbjdict.iteritems():
@@ -185,7 +223,21 @@ class AdniMrCollection(object):
                                                                                    target.fixedimage.getviscode()))
                 followupdict[target] = followup
         
-        return [followupdict[x] for x in pairs]
+        return list(itertools.chain(*[followupdict[x] for x in pairs]))
+
+
+    def write_meta(self):
+        '''
+        Write the current lmodel to a csv file
+        '''
+        print 'ladnimr:', self._ladnimr
+        print 'keys: ', self._ladnimr[0].getmetadict().keys()
+        with open(join(self.dbpath, 'dbgen-pyregival.csv'), 'wb') as f:
+            writer = csv.DictWriter(f, delimiter=',', fieldnames=self._ladnimr[0].getmetadict().keys())
+            writer.writeheader()
+            for m in self._ladnimr:
+                writer.writerow(m.getmetadict())
+
 
     # Traverse the dbpath for the files with provided suffix
     def _traverse_for_file(self, path, suffix):
@@ -195,6 +247,7 @@ class AdniMrCollection(object):
             if file.endswith(suffix):
                 limg.append((root, file))
         return limg
+
 
     # Find Image ID from ADNI nii filename
     def _find_adni_imgid(self, fname):

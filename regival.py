@@ -13,6 +13,7 @@ from models import *
 from additional_nipype_interfaces import *
 import itertools
 import pickle
+import numpy as np
 
 class MrRegival (object): 
 
@@ -32,9 +33,10 @@ class MrRegival (object):
         if lmodel == None:
             lmodel = self._collection.getmrlist()
 
+        self._collection.filtermodels(interval) # Only keep the usable cases
         self.normalise(normtemplatepath, normalise_method)
         transpairs = AdniMrCollection(lmodel).find_transform_pairs(intervals)
-        self.transform(transpairs, lmodel)
+        self.transform(transpairs)
         diffs = list(itertools.product(transpairs, repeat=2))
         # Make diffs to a {fid1,mid1,fid2,mid2: (interval1, interval2)} dict
         # Structure of diff itself: ((fid1,mid1, interval1), (fid2,mid2, interval2))
@@ -44,10 +46,10 @@ class MrRegival (object):
             if node.name == 'similarity':
                 similarity = node.result.outputs.similarity # The order is the same witht self.diffs
 
-        self.pred_template = {}
-        self.pred_template['transpairs'] = transpairs
-        self.pred_template['corr'] = dict(zip(diffs, similarity)) 
-        self.pred_template['lmodel'] = lmodel 
+        self._ptemplate = {}
+        self._ptemplate['transpairs'] = transpairs
+        self._ptemplate['corr'] = dict(zip(diffs, similarity)) 
+        self._ptemplate['lmodel'] = lmodel 
 
         with open(join(self.dbpath, 'ptemplate.pkl'), 'wb') as outfile:
             pickle.dump(self.pred_template, outfile)
@@ -299,6 +301,9 @@ class MrRegival (object):
         # TODO: If this subject is not in the template, add this subject to the template
 
         # Find the column and row of this subject, 
+        print targetpair.fixedimage.getimgid()
+        print [ p.movingimage.getimgid() + '-' + p.fixedimage.getimgid() for p in elligible_pairs]
+        print [ p.movingimage.getimgid() + '-' + p.fixedimage.getimgid() for p in self._ptemplate['transpairs']]
         targetidx = elligible_pairs.index(targetpair)
         matrow = simmat[targetidx, :]
         matcol = simmat[:, targetidx]
