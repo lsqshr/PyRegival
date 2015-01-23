@@ -60,6 +60,10 @@ class transformpair (object):
     def getinterval(self):
         return self.fixedimage.getviscode() - self.movingimage.getviscode()
 
+    def __eq__(self, other):
+        return self.fixedimage.getimgid() == other.getimgid() and\
+               self.movingimage.getimgid() == other.movingimage.getimgid()
+
 
 # A collection tool class to perform some grouping and searching of the adnimriimg models
 class AdniMrCollection(object):
@@ -80,7 +84,7 @@ class AdniMrCollection(object):
         '''
         Translate the row ADNI csv image list you download from loni repo to our csv template.
         It will require R language to be installed on your computer
-        and the ADNIMERGE package which can be downloaded from ADNI repo
+            and the ADNIMERGE package which can be downloaded from ADNI repo
         '''
         if dbpath is None:
             dbpath = self.dbpath
@@ -114,10 +118,11 @@ class AdniMrCollection(object):
         Find all images stated in the dbgen.csv in the db path
         Construct adnimrimg list
         '''
-        limg = self._traverse_for_file(dbpath, '.nii')
-        limgid = [self._find_adni_imgid(img[1]) for img in limg ]
+        #limg = self._traverse_for_file(dbpath, '.nii')
+        #limgid = [self._find_adni_imgid(img[1]) for img in limg ]
         self._ladnimr = []
 
+        limgid = []
         # read in the dbgen.db
         with open(join(dbpath, 'dbgen.csv')) as f:
           r = csv.reader(f, delimiter=',')
@@ -131,9 +136,11 @@ class AdniMrCollection(object):
 
             imgid = meta['Image.Data.ID']
 
-            imgf = limg[ limgid.index(imgid) ]
-            filepath = join(imgf[0], imgf[1])
-            self._ladnimr.append(adnimrimg(meta, filepath))
+            #imgf = limg[ limgid.index(imgid) ]
+            #filepath = join(imgf[0], imgf[1])
+            if imgid not in limgid: # dispose the duplicated image
+                self._ladnimr.append(adnimrimg(meta, None))
+                limgid.append(imgid)
 
         return self._ladnimr
 
@@ -203,9 +210,9 @@ class AdniMrCollection(object):
             # at list one follow up transforms
             matched = [t for t in translist if t.fixedimage.getviscode()
                                                in l_moving_viscode] 
-            #print 'matched:', ['sbjid: %s  trans: %s-%s' % (m.fixedimage.getmetafield('RID'), m.movingimage.getimgid(), m.fixedimage.getimgid())
-            #                    for  m in matched]
             elligible_pairs += matched
+
+        elligible_pairs = list(Set(elligible_pairs))
 
         return elligible_pairs
     

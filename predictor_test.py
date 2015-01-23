@@ -7,13 +7,14 @@ from mrpredict import *
 import time
 
 dbpath = join('tests', "testdata", "5People")
+#dbpath = join('tests', "testdata", "5ADNI-Patients")
 #dbpath = join('tests', "testdata", "4092cMCI-GRAPPA2")
+#dbpath = join('tests', "testdata", "1Person-duplicated-images")
 
 reg = MrRegival(dbpath=dbpath)
 #ladnimr = reg.getcollection().getmrlist()
 
 if not os.path.exists(join(dbpath, 'ptemplate.pkl')):
-	reg = MrRegival(dbpath)
 	reg.build(normalise_method='FSL')
 else:	
 	reg.load_ptemplate(join(dbpath, 'ptemplate.pkl'))

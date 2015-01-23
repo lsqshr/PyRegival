@@ -33,28 +33,36 @@ class MrRegival (object):
         if lmodel == None:
             lmodel = self._collection.getmrlist()
 
+        # Cleanup the current results folder, otherwise the directory may mess up
+        # So if you want to keep the previous data, pls backup them
+        import shutil
+        if exists(join(self.dbpath, 'results')):
+            shutil.rmtree(join(self.dbpath, 'results'))
+
         self._collection.filtermodels(interval) # Only keep the usable cases
+        if len(self._collection.getmrlist()) == 0:
+            raise Exception('No elligible MR found in: %s. Please double-check' % self.dbpath)
         self.normalise(normtemplatepath, normalise_method)
-        transpairs = AdniMrCollection(lmodel).find_transform_pairs(interval)
-        self.transform(transpairs)
-        diffs = list(itertools.product(transpairs, repeat=2))
+        self.transform()
+        #diffs = list(itertools.product(transpairs, repeat=2))
         # Make diffs to a {fid1,mid1,fid2,mid2: (interval1, interval2)} dict
         # Structure of diff itself: ((fid1,mid1, interval1), (fid2,mid2, interval2))
-        g = self.transdiff(diffs) # transdiff does not consider the different interval
+        g = self.transdiff() # transdiff does not consider the different interval
 
         for node in g.nodes():
             if node.name == 'similarity':
-                similarity = node.result.outputs.similarity # The order is the same witht self.diffs
+                similarity = node.result.outputs.similarity # The order is the same with self.diffs
 
         self._ptemplate = {}
-        self._ptemplate['transpairs'] = transpairs
+        self._ptemplate['transpairs'] = self._collection.find_transform_pairs()
+        diffs = list(itertools.product(self._collection.find_transform_pairs(), repeat=2))
         self._ptemplate['corr'] = dict(zip(diffs, similarity)) 
-        self._ptemplate['lmodel'] = lmodel 
+        self._ptemplate['lmodel'] = self._collection.getmrlist() 
 
         with open(join(self.dbpath, 'ptemplate.pkl'), 'wb') as outfile:
-            pickle.dump(self.pred_template, outfile)
+            pickle.dump(self._ptemplate, outfile)
 
-        return self.pred_template
+        return self._ptemplate
 
 
     def getcollection(self):
@@ -72,7 +80,7 @@ class MrRegival (object):
 
         '''
         if lmodel == None:
-            lmodel = self._collection.getmrlist()              
+            lmodel = self._collection.getmrlist()
         
         lsbjid = [model.getmetafield('Subject') for model in lmodel]
         limgid = [model.getimgid() for model in lmodel]
@@ -133,10 +141,13 @@ class MrRegival (object):
         wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()})
 
 
-    def transform(self, transpairs, lmodel=None):
+    def transform(self, transpairs=None, lmodel=None):
 
         if lmodel == None:
             lmodel = self._collection.getmrlist()
+        if transpairs == None:
+            #self._collection.filtermodels()
+            transpairs = self._collection.find_transform_pairs()
 
         # Make the workflow
         inputnode = pe.MapNode(interface=niu.IdentityInterface(fields=['fixedimgid', 'movingimgid', 'transid']),
@@ -201,7 +212,9 @@ class MrRegival (object):
         wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()})# Compare two different transforms
 
 
-    def transdiff(self, diffpairs):
+    def transdiff(self, diffpairs=None):
+        if diffpairs == None:
+            diffpairs = list(itertools.product(self._collection.find_transform_pairs(), repeat=2))
         inputnode = pe.MapNode(interface=niu.IdentityInterface(fields=['sbj1_mov_imgid',
                                                                        'sbj1_fix_imgid',
                                                                        'sbj2_mov_imgid',
@@ -301,9 +314,9 @@ class MrRegival (object):
         # TODO: If this subject is not in the template, add this subject to the template
 
         # Find the column and row of this subject, 
-        print targetpair.fixedimage.getimgid()
-        print [ p.movingimage.getimgid() + '-' + p.fixedimage.getimgid() for p in elligible_pairs]
-        print [ p.movingimage.getimgid() + '-' + p.fixedimage.getimgid() for p in self._ptemplate['transpairs']]
+        #print targetpair.fixedimage.getimgid()
+        #print [ p.movingimage.getimgid() + '-' + p.fixedimage.getimgid() for p in elligible_pairs]
+        #print [ p.movingimage.getimgid() + '-' + p.fixedimage.getimgid() for p in self._ptemplate['transpairs']]
         targetidx = elligible_pairs.index(targetpair)
         matrow = simmat[targetidx, :]
         matcol = simmat[:, targetidx]
