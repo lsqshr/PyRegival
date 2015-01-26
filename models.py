@@ -61,7 +61,7 @@ class transformpair (object):
         return self.fixedimage.getviscode() - self.movingimage.getviscode()
 
     def __eq__(self, other):
-        return self.fixedimage.getimgid() == other.getimgid() and\
+        return self.fixedimage.getimgid() == other.fixedimage.getimgid() and\
                self.movingimage.getimgid() == other.movingimage.getimgid()
 
 
@@ -200,6 +200,9 @@ class AdniMrCollection(object):
 
 
     def filter_elligible_pairs(self, pairs=None, interval=[12]):
+	'''
+	Filter the models with at 1 follow up
+	'''
         sbjdict = self.group_pairs(pairs, interval)
 
         elligible_pairs = []

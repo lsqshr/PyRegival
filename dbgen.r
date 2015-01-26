@@ -56,7 +56,7 @@ dbcsv$Acq.Date = as.Date(dbcsv$Acq.Date, "%m/%d/%Y")
 dbcsv = merge(submrimeta, dbcsv,by.x=c("RID", "EXAMDATE"), by.y=c("RID", "Acq.Date"))
 dbcsv$VISCODE[dbcsv$VISCODE=="scmri"]="sc"
 dbcsv <- merge(dbcsv, sub_dxsum, by.x=c("RID", "VISCODE"), by.y=c("RID", "VISCODE"), all.x=TRUE)
-dbcsv$VISCODE[dbcsv$VISCODE %in% c("scmri", "sc", "bl")] = "m0"
+dbcsv$VISCODE[dbcsv$VISCODE %in% c("scmri", "sc", "bl", "uns1")] = "m0"
 dbcsv <- dbcsv[order(dbcsv$RID, dbcsv$VISCODE),]
 #dbcsv$DXCHANGE = replacebyneighbour(dbcsv$DXCHANGE)
 
