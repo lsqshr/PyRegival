@@ -1,3 +1,14 @@
+/ADNI_016_S_0359_MR_MPR__GradWarp__B1_Correction__N3__Scaled_Br_20070927073945907_S23814_I75447_errmap.nii
+/ADNI_016_S_0359_MR_MPR__GradWarp__B1_Correction__N3__Scaled_Br_20071027105234721_S36275_I78618_errmap.nii
+/prediction/d3.js
+/prediction/graph.json
+/prediction/graph1.json
+/prediction/index.html
+/test_AvgErrMap.py
+/testbuildlog-ants.txt
+/testbuildlog.txt
+/testlog-2.txt
+/testlog.txt
 tests/testdata/*
 /ptemplate.pkl
 /graph.dot.png

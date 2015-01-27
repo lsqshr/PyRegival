@@ -1,8 +1,12 @@
 import os
+import os.path as op # Convension used in nipype.algorithms.metrics
 from nipype.interfaces.fsl.preprocess import FSLCommandInputSpec, FSLCommand
 from nipype.interfaces.ants.registration import ANTSCommand, ANTSCommandInputSpec, RegistrationOutputSpec
 from nipype.interfaces.base import TraitedSpec, File, traits, CommandLine, InputMultiPath
 from nipype.interfaces.traits_extension import isdefined
+from nipype.algorithms.metrics import ErrorMap, ErrorMapOutputSpec
+import nibabel as nb # Convension used in nipype.algorithms.metrics
+import numpy as np # Convension used in nipype.algorithms.metrics
 
 #------------------
 # Wrap 'FSL/standard_space_roi' of FSL, did not find this interface in the current nipype
@@ -110,3 +114,97 @@ class ComposeMultiTransform(ANTSCommand):
         outputs = self._outputs().get()
         outputs['output_file'] = os.path.join(os.getcwd(), self.inputs.output_file)
         return outputs
+
+
+class AvgErrorMapOutputSpec(ErrorMapOutputSpec):
+    '''
+    Added a new average error field 
+    '''
+    avgerr = traits.Float(desc="Average distance between volume 1 and 2 of all voxels")
+    
+
+class AvgErrorMap(ErrorMap):
+    '''
+    A simple wrap of nipype.algorithms.metrics.ErrorMap
+    to also output an average sum distance (a float) besides the errormap volume
+    '''
+
+    output_spec = AvgErrorMapOutputSpec
+
+    def _run_interface(self, runtime):
+        # Get two numpy data matrices
+        nii_ref = nb.load(self.inputs.in_ref)
+        ref_data = np.squeeze(nii_ref.get_data())
+        tst_data = np.squeeze(nb.load(self.inputs.in_tst).get_data())
+        assert(ref_data.ndim == tst_data.ndim)
+
+        # Load mask
+        comps = 1
+        mapshape = ref_data.shape
+
+        if (ref_data.ndim == 4):
+            comps = ref_data.shape[-1]
+            mapshape = ref_data.shape[:-1]
+
+        if isdefined(self.inputs.mask):
+            msk = nb.load( self.inputs.mask ).get_data()
+            if (mapshape != msk.shape):
+                raise RuntimeError("Mask should match volume shape, \
+                                   mask is %s and volumes are %s" %
+                                   (list(msk.shape), list(mapshape)))
+        else:
+            msk = np.ones(shape=mapshape)
+
+        # Vectorise both volumes and make the pixel differennce
+        mskvector = msk.reshape(-1)
+        msk_idxs = np.where(mskvector==1)
+        refvector = ref_data.reshape(-1,comps)[msk_idxs].astype(np.float32)
+        tstvector = tst_data.reshape(-1,comps)[msk_idxs].astype(np.float32)
+        diffvector = (refvector-tstvector)
+
+        # scale the diffrernce
+        if self.inputs.metric == 'sqeuclidean':
+            errvector = diffvector**2
+        elif self.inputs.metric == 'euclidean':
+            X = np.hstack((refvector, tstvector))
+            errvector = np.linalg.norm(X, axis=1)
+
+        if (comps > 1):
+            errvector = np.sum(errvector, axis=1)
+        else:
+            errvector = np.squeeze(errvector)
+
+        errvectorexp = np.zeros_like(mskvector)
+        errvectorexp[msk_idxs] = errvector
+
+        # Get averaged sum error
+        self._avgerr = np.average(errvectorexp)
+
+        errmap = errvectorexp.reshape(mapshape)
+
+        hdr = nii_ref.get_header().copy()
+        hdr.set_data_dtype(np.float32)
+        hdr['data_type'] = 16
+        hdr.set_data_shape(mapshape)
+
+        if not isdefined(self.inputs.out_map):
+            fname,ext = op.splitext(op.basename(self.inputs.in_tst))
+            if ext=='.gz':
+                fname,ext2 = op.splitext(fname)
+                ext = ext2 + ext
+            self._out_file = op.abspath(fname + "_errmap" + ext)
+        else:
+            self._out_file = self.inputs.out_map
+
+        nb.Nifti1Image(errmap.astype(np.float32), nii_ref.get_affine(),
+                       hdr).to_filename(self._out_file)
+
+        return runtime 
+
+
+    def _list_outputs(self):
+        outputs = super(AvgErrorMap, self)._list_outputs()
+        outputs['avgerr'] = self._avgerr
+        return outputs
+
+

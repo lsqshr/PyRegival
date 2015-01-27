@@ -5,7 +5,6 @@ import nipype.interfaces.io as nio
 from nipype.interfaces.ants.legacy import antsIntroduction
 from nipype.interfaces.ants import Registration
 from nipype.interfaces.ants import ApplyTransforms
-from nipype.algorithms.metrics import Similarity
 from nipype.interfaces.utility import Function
 from os.path import * 
 import os
@@ -15,6 +14,7 @@ from additional_nipype_interfaces import *
 import itertools
 import pickle
 import numpy as np
+import time
 
 class MrRegival (object): 
 
@@ -22,10 +22,12 @@ class MrRegival (object):
         self.dbpath = dbpath
         self._collection = AdniMrCollection(dbpath=dbpath)
         self._ptemplate = None
+        self._log = []
 
     def build(self, normtemplatepath='/usr/share/fsl/data/standard/MNI152_T1_2mm_brain.nii.gz', 
                        normalise_method='ANTS',
                        interval=[12]):
+
         '''
         lmodel: a list of adnimrimg objects
         normtemplatepath: the template used by the normalisation
@@ -40,20 +42,38 @@ class MrRegival (object):
         self._collection.filtermodels(interval) # Only keep the usable cases
         if len(self._collection.getmrlist()) == 0:
             raise Exception('No elligible MR found in: %s. Please double-check' % self.dbpath)
+        start = time.time()
         self.normalise(normtemplatepath, normalise_method)
+        end = time.time()
+        logstr = 'The normalisation took %f seconds, %f seconds each of %d in total' % \
+              (end-start, (end-start)/len(self._collection.getmrlist()),  \
+              len(self._collection.getmrlist()))
+        print logstr
+        self._log.append(logstr)
+        start = time.time()
         self.transform()
+        end = time.time()
+        logstr = 'The transformation took %f seconds, %f seconds each of %d in total' % \
+              (end-start, (end-start)/len(self._collection.find_transform_pairs()), \
+              len(self._collection.find_transform_pairs()))
+        self._log.append(logstr)
+        start = time.time()
         g = self.transdiff() # transdiff does not consider the different intervals
+        diffs = list(itertools.product(self._collection.find_transform_pairs(), repeat=2)) # Since models were filtered before, the pairs here should be only the elligible ones
+        end = time.time()
+        logstr = 'The transdiff took %f seconds, %f seconds each of %d in total' % \
+              (end-start, (end-start)/len(diffs), len(diffs))
+        self._log.append(logstr)
 
         for node in g.nodes():
-            if node.name == 'similarity':
-                similarity = node.result.outputs.similarity # The order is the same with self.diffs
+            if node.name == 'errmap':
+                errmap = node.result.outputs.avgerr # The order is the same with self.diffs
 
         self._ptemplate = {}
         self._ptemplate['transpairs'] = self._collection.find_transform_pairs()
-        diffs = list(itertools.product(self._collection.find_transform_pairs(), repeat=2)) # Since models were filtered before, the pairs here should be only the elligible ones
         diffs = [((d[0].fixedimage.getimgid(), d[0].movingimage.getimgid()),\
                  (d[1].fixedimage.getimgid(), d[1].movingimage.getimgid())) for d in diffs] # Use the imgid pairs instead of the pair model tuples for keys
-        self._ptemplate['corr'] = dict(zip(diffs, similarity)) 
+        self._ptemplate['distance'] = dict(zip(diffs, errmap)) 
         self._ptemplate['lmodel'] = self._collection.getmrlist() 
 
         with open(join(self.dbpath, 'ptemplate.pkl'), 'wb') as outfile:
@@ -124,7 +144,8 @@ class MrRegival (object):
             normwarp = pe.Node(antsIntroduction(), name='ants')
             normwarp.inputs.reference_image = normtemplatepath
             normwarp.inputs.max_iterations = [30,90,20]
-            normwarp.inputs.transformation_model = 'RA'
+            #normwarp.inputs.transformation_model = 'RA'
+            normwarp.inputs.transformation_model = 'RI'
             normwarp.inputs.out_prefix = 'norm_'
             infield  = 'input_image'
             outfield = 'output_file'
@@ -161,7 +182,6 @@ class MrRegival (object):
                                       name='trans_datasource', 
                                       iterfield = ['fixedimgid', 'movingimgid'])
         trans_datasource.inputs.base_directory = os.path.abspath(join(self.dbpath, 'results'))
-        #print (trans_datasource.inputs.base_directory)
         trans_datasource.inputs.template = 'preprocessed/_imgid_%s/norm_deformed.nii.gz'
         trans_datasource.inputs.template_args = dict(fixed_file=[['fixedimgid']],
                                                      moving_file=[['movingimgid']])
@@ -261,12 +281,11 @@ class MrRegival (object):
         resamplenode.inputs.default_value = 0
         resamplenode.inputs.invert_transform_flags = [False]
 
-        similaritynode = pe.MapNode(interface=Similarity(), name='similarity', 
-                                    iterfield=['volume1', 'volume2'])
-        similaritynode.inputs.metric = 'cr'
-        similaritynode.ignore_exception = False 
+        errmapnode = pe.MapNode(interface=AvgErrorMap(), name='errmap', 
+                                    iterfield=['in_ref', 'in_tst'])
+        errmapnode.ignore_exception = False 
 
-        outputnode = pe.Node(interface=niu.IdentityInterface(fields=['similarity']),
+        outputnode = pe.Node(interface=niu.IdentityInterface(fields=['distance']),
                                 name='transdiff_outputnode')
 
         # build the workflow
@@ -283,9 +302,9 @@ class MrRegival (object):
                     (composenode, resamplenode, [('output_file', 'transforms')]),
                     (trans_datasource, resamplenode, [('sbj1_mov_img', 'input_image')]),
                     (trans_datasource, resamplenode, [('sbj1_fix_img', 'reference_image')]),
-                    (resamplenode, similaritynode, [('output_image', 'volume1')]),
-                    (trans_datasource, similaritynode, [('sbj1_fix_img', 'volume2')]),
-                    (similaritynode, outputnode, [('similarity', 'similarity')]),
+                    (resamplenode, errmapnode, [('output_image', 'in_ref')]),
+                    (trans_datasource, errmapnode, [('sbj1_fix_img', 'in_tst')]),
+                    (errmapnode, outputnode, [('avgerr', 'distance')]),
                     ])
 
         # Run workflow with all cpus available
@@ -300,13 +319,13 @@ class MrRegival (object):
         t : Gaussian kernel density
         rowweight: the relative weight of the row elements for neighbood building
         colweight: the relative weight of the column elements for neighbood building
-        option: 'change'/'baseline image'/'both'
+        option: 'change'/'baseline image'/'both'/'random'/'even' The 'random' weigths are for 
         '''
-
+        start = time.time()
         if ptemplate == None:
             ptemplate = self._ptemplate
 
-        # Convert the similarity dict to a matrix with the order of the mrid pairs
+        # Convert the distance dict to a matrix with the order of the mrid pairs
         simmat, elligible_pairs = self._convert_ptemplate2matrix(interval=[targetpair.getinterval()]) 
         # TODO: If this subject is not in the template, add this subject to the template
 
@@ -314,30 +333,22 @@ class MrRegival (object):
         targetidx = elligible_pairs.index(targetpair)
         matrow = simmat[targetidx, :]
         matcol = simmat[:, targetidx]
-        print 'simmat:', simmat
-        print 'matrow:', matrow
 
         # Assign itself with similairity of 0 in the matrix to ignore it when merge
         allrid = [p.fixedimage.getmetafield('RID') for p in elligible_pairs]
         targetrid = targetpair.fixedimage.getmetafield('RID')
         all_target_sbj_idx = [i for i, x in enumerate(allrid) if x == targetrid]
-        matcol[targetidx] = matrow[all_target_sbj_idx] = 0
+        w = (colweight * matcol + rowweight * matrow) / (colweight + rowweight)
+        print 'raw distances are: ', w
+        w = w / np.max(w)
 
         #linterval = np.array([p.fixed_image.getviscode() - p.moving_image.getviscode()
         #                      for p in elligible_pairs])
 
-        #np.abs(linterval - targetpair[2])
         # Calculate the row&column weights distribution considering the interval
-        print 'matrow', matrow
-        drow = 1 - matrow 
-        dcol = 1 - matcol
-        ecol = np.exp(-(dcol/t))
-        erow = np.exp(-(drow/t))
-        print 'ecol:', ecol, 'erow', erow
-        w = (colweight * ecol + rowweight * erow) / (colweight + rowweight)
-	print 'w before tolist:', w
-        w = (w).tolist()
-	print 'w after tolist'
+        ew = np.exp(-(w/t))
+        ew[all_target_sbj_idx] = 0
+        ew = (ew).tolist()
 
         # Ignore for now : Find the top N neighbours from row/column by weighting 
 
@@ -345,23 +356,30 @@ class MrRegival (object):
         followuppairs = self._collection.find_followups(elligible_pairs, interval=[targetpair.getinterval()]) 
 
         # Merge these templates by weighting
-        g = self.merge(followuppairs, w, targetpair, followup_id=real_followupid)
+        g = self.merge(followuppairs, ew, targetpair, followup_id=real_followupid)
 
-        print 'DEBUG -- Node Names:', [node.name for node in g.nodes()]
-        
+        avgerr = None
         if real_followupid is not None:
             for node in g.nodes():
-                if node.name == 'similarity':
-                    similarity = node.result.outputs.similarity 
+                if node.name == 'errmap':
+                    avgerr = node.result.outputs.avgerr 
 
-            print 'The resampling similarity is: ', similarity
+            print 'The resampling distance is: ', avgerr 
         else:
             'The real followup id is not provided, no comparison was possible...'
-        
+
+        end = time.time()
+        logstr = 'The prediction of 1 target took %f seconds, %f in %d elligible pairs' % \
+                  ((end-start), (end-start)/len(self._collection.filter_elligible_pairs()), len(self._collection.filter_elligible_pairs()))
+        print logstr
+        self._log.append(logstr)
+
+        return avgerr
+
 
     def _convert_ptemplate2matrix(self, interval=None):
         pairs = self._ptemplate['transpairs']
-        sim = self._ptemplate['corr']
+        sim = self._ptemplate['distance']
 
         # Remove the transpairs without following transpairs
         elligible_pairs = self._collection.filter_elligible_pairs(pairs, interval)
@@ -375,7 +393,7 @@ class MrRegival (object):
                 #print '%s-%s, %s-%s' % (p1.movingimage.getimgid(), p1.fixedimage.getimgid(), 
                 #    p2.movingimage.getimgid(), p2.fixedimage.getimgid(),)
                 simmat[i,j] = sim[((p1.fixedimage.getimgid(), p1.movingimage.getimgid()), 
-                                   (p2.fixedimage.getimgid(), p2.movingimage.getimgid()))][0]
+                                   (p2.fixedimage.getimgid(), p2.movingimage.getimgid()))]
 
         return simmat, elligible_pairs
 
@@ -444,20 +462,21 @@ class MrRegival (object):
         resamplenode.inputs.default_value = 0
         resamplenode.inputs.invert_transform_flags = [False]
 
-        # Evalutate the similarity of the predicted image
-        similaritynode = pe.Node(interface=Similarity(), name='similarity')
-        similaritynode.inputs.metric = 'cr'
+        # Evalutate the distance of the predicted image
+        errmapnode = pe.Node(interface=AvgErrorMap(), name='errmap')
 
         # Data Sink to save the summed transform and the resampled image
         datasink = pe.Node(nio.DataSink(infields=['container',
                                                   'predicted', 
                                                   'predicted.@trans_image',
-                                                  'SyNQuick.@predicted_trans']), name='mergesink')
+                                                  'predicted.@predicted_trans',
+                                                  'predicted.@errmap'
+                                                  ]), name='mergesink')
         datasink.inputs.base_directory = os.path.abspath(join(self.dbpath, 'results', 'predicted'))
         #datasink.inputs.substitutions = [('_transnode', 'transid')]
         datasink.inputs.parameterization = True
 
-        outputnode = pe.Node(interface=niu.IdentityInterface(fields=['similarity']), name='evalsimilarity')
+        outputnode = pe.Node(interface=niu.IdentityInterface(fields=['distance']), name='evaldistance')
 
         wf = pe.Workflow(name='prediction')
         wf.connect([(inputnode, pred_datasource, [('transa_imageid', 'transa_imageid'), 
@@ -488,19 +507,24 @@ class MrRegival (object):
             followup_datasource.inputs.followupid = followup_id
             followup_datasource.inputs.sort_filelist = True
 
-            wf.connect(followup_datasource, 'followupimage', similaritynode, 'volume1')
-            wf.connect(resamplenode, 'output_image', similaritynode, 'volume2')
-            wf.connect(similaritynode, 'similarity', outputnode, 'similarity')
+            wf.connect(followup_datasource, 'followupimage', errmapnode, 'in_ref')
+            wf.connect(resamplenode, 'output_image', errmapnode, 'in_tst')
+            wf.connect(errmapnode, 'avgerr', outputnode, 'distance')
+            wf.connect(errmapnode, 'out_map', datasink, 'predicted.@errmap')
 
         g = wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()})
         return g
+
+
+    def printlog(self):
+        print '\n'.join(self._log)
 
 
 def trans_weighted_sum(transforms, weights):
     import nibabel as nib
     import numpy as np
     import os
-    print 'weights vector is : ', weights
+    #print 'weights vector is : ', weights
     for i, (path, w) in enumerate(zip(transforms, weights)):
         img = nib.load(path)
         data = img.get_data()
