@@ -18,13 +18,19 @@ import time
 
 class MrRegival (object): 
 
-    def __init__(self, dbpath):
+    def __init__(self, dbpath=None, collection=None):
         self.dbpath = dbpath
-        self._collection = AdniMrCollection(dbpath=dbpath)
+        assert not(dbpath is None and collection is None) 
+
+        if collection is not None:
+            self._collection = collection
+        elif dbpath is not None: # Extract new collection when collection is not given
+            self._collection = AdniMrCollection(dbpath=dbpath)
+
         self._ptemplate = None
         self._log = []
 
-    def build(self, normtemplatepath='/usr/share/fsl/data/standard/MNI152_T1_2mm_brain.nii.gz', 
+    def build(self, normtemplatepath='MNI152_T1_2mm_brain.nii.gz', 
                        normalise_method='ANTS',
                        interval=[12]):
 
@@ -33,6 +39,7 @@ class MrRegival (object):
         normtemplatepath: the template used by the normalisation
 
         '''
+        normtemplatepath = abspath(normtemplatepath)
         # Cleanup the current results folder, otherwise the directory may mess up
         # So if you want to keep the previous data, pls backup them
         import shutil
@@ -91,9 +98,10 @@ class MrRegival (object):
         return self._ptemplate
 
 
-    def normalise(self, normtemplatepath='/usr/share/fsl/data/standard/MNI152_T1_2mm_brain.nii.gz', 
+    def normalise(self, normtemplatepath='MNI152_T1_2mm_brain.nii.gz', 
                 normalise_method='ANTS', lmodel=None):
         ''' 
+        Normalisation Pipeline with either FSL flirt or ANTS antsIntroduction
 
         '''
         if lmodel == None:
@@ -123,8 +131,10 @@ class MrRegival (object):
         """
         stdroi = pe.Node(StdRoi(), name='standard_space_roi')
         stdroi.inputs.betpremask = True
+        stdroi.inputs.ignore_exception = True
         stripper = pe.Node(fsl.BET(), name='stripper')
         stripper.inputs.frac = 0.2
+        stripper.inputs.ignore_exception = True
 
         #stripper.inputs.robust = True
         #stripper.inputs.reduce_bias = True
@@ -138,15 +148,17 @@ class MrRegival (object):
             normwarp.inputs.reference = normtemplatepath
             normwarp.inputs.output_type = "NIFTI_GZ"       #stripper.inputs.padding = True
             normwarp.inputs.out_file = 'norm_deformed.nii.gz'
+            normwarp.inputs.ignore_exception = True
             infield  = 'in_file'
             outfield = 'out_file'
         elif normalise_method == 'ANTS':
             normwarp = pe.Node(antsIntroduction(), name='ants')
             normwarp.inputs.reference_image = normtemplatepath
             normwarp.inputs.max_iterations = [30,90,20]
-            #normwarp.inputs.transformation_model = 'RA'
+            normwarp.inputs.num_threads = 1 # This parameter will not take effects
             normwarp.inputs.transformation_model = 'RI'
             normwarp.inputs.out_prefix = 'norm_'
+            normwarp.inputs.ignore_exception = True
             infield  = 'input_image'
             outfield = 'output_file'
 
@@ -156,7 +168,7 @@ class MrRegival (object):
         wf.connect(normwarp, outfield, datasink, 'preprocessed')
 
         # Run workflow with all cpus available
-        wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()})
+        wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()-1})
 
 
     def transform(self, transpairs=None, lmodel=None):
@@ -192,6 +204,7 @@ class MrRegival (object):
                                iterfield=['fixed_image', 'moving_image'])
         transnode.inputs.output_prefix = 'out'
         transnode.inputs.dimension = 3 
+        transnode.inputs.ignore_exception = True
         #transnode = make_antsRegistrationNode() # in nipype antsRegistration has a non-valid flag: 
                                                  # `--collapse-linear-transforms-to-fixed-image-header` 
                                                  # which cannot be turned off till 10/1/15
@@ -226,12 +239,12 @@ class MrRegival (object):
         wf.connect(transnode, 'warped_image', datasink, 'SyNQuick.@warped_image')
 
         # Run workflow with all cpus available
-        wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()})# Compare two different transforms
+        wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()-1})# Compare two different transforms
 
 
     def transdiff(self, diffpairs=None):
         if diffpairs == None:
-            diffpairs = list(itertools.product(self._collection.find_transform_pairs(), repeat=2))
+            diffpairs = self._collection.getdiffpairs()
         inputnode = pe.MapNode(interface=niu.IdentityInterface(fields=['sbj1_mov_imgid',
                                                                        'sbj1_fix_imgid',
                                                                        'sbj2_mov_imgid',
@@ -254,7 +267,7 @@ class MrRegival (object):
         trans_datasource.inputs.field_template = dict(sbj1_mov_img   = join('preprocessed','_imgid_%s','norm_deformed.nii.gz'),
                                                       sbj1_fix_img   = join('preprocessed','_imgid_%s','norm_deformed.nii.gz'),
                                                       sbj2_mov_img   = join('preprocessed','_imgid_%s','norm_deformed.nii.gz'),
-                                                      transform_2ab = join('transformed','%s-%s','SyNQuick', 'transid*', 'out1Warp.nii.gz')                                            )
+                                                      transform_2ab = join('transformed','%s-%s','SyNQuick', 'transid*', 'out1Warp.nii.gz'))
         trans_datasource.inputs.template_args = dict(sbj1_mov_img   = [['sbj1_mov_imgid']],
                                                      sbj1_fix_img   = [['sbj1_fix_imgid']],
                                                      sbj2_mov_img   = [['sbj2_mov_imgid']],
@@ -266,12 +279,13 @@ class MrRegival (object):
                            iterfield=['fixed_image', 'moving_image'])
         transnode.inputs.output_prefix = 'out'
         transnode.inputs.dimension = 3 
+        transnode.inputs.ignore_exception = True
 
         composenode = pe.MapNode(interface=ComposeMultiTransform(), name='compose',
                    iterfield=['reference', 'transform1', 'transform2'])
         composenode.inputs.dimension = 3
         composenode.inputs.output_file = 'a2a.nii.gz'
-        composenode.inputs.ignore_exception = False 
+        composenode.inputs.ignore_exception = True
 
         resamplenode = pe.MapNode(interface=ApplyTransforms(), name='resample', 
                                   iterfield=['input_image', 'reference_image', 'transforms']) 
@@ -280,10 +294,11 @@ class MrRegival (object):
         resamplenode.inputs.interpolation = 'Linear'
         resamplenode.inputs.default_value = 0
         resamplenode.inputs.invert_transform_flags = [False]
+        resamplenode.inputs.ignore_exception = True
 
         errmapnode = pe.MapNode(interface=AvgErrorMap(), name='errmap', 
                                     iterfield=['in_ref', 'in_tst'])
-        errmapnode.ignore_exception = False 
+        errmapnode.ignore_exception = True
 
         outputnode = pe.Node(interface=niu.IdentityInterface(fields=['distance']),
                                 name='transdiff_outputnode')
@@ -308,7 +323,7 @@ class MrRegival (object):
                     ])
 
         # Run workflow with all cpus available
-        g = wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()})
+        g = wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()-1})
         return g
 
 
@@ -440,19 +455,20 @@ class MrRegival (object):
                    iterfield=['fixed_image', 'moving_image'])
         transnode.inputs.output_prefix = 'out'
         transnode.inputs.dimension = 3
+        transnode.ignore_exception = True
 
         # Compose each transform with the space matching
         composenode = pe.MapNode(interface=ComposeMultiTransform(), name='compose',
                    iterfield=['reference', 'transform1', 'transform2'])
         composenode.inputs.dimension = 3
         composenode.inputs.output_file = 'a2a.nii.gz'
+        composenode.inputs.ignore_exception = True
 
         # Weight Sum the transforms
         weighted_sum_node = pe.Node(interface=Function(input_names=['transforms', 'weights'],
                                                        output_names=['out_file'],
                                                        function=trans_weighted_sum), 
                                     name='weighted_sum')
-        weighted_sum_node.inputs.weights = w
 
         # warp the target second image
         resamplenode = pe.Node(interface=ApplyTransforms(), name='resample')  # refrence_image is set as the input_image itself now
@@ -461,6 +477,7 @@ class MrRegival (object):
         resamplenode.inputs.interpolation = 'Linear'
         resamplenode.inputs.default_value = 0
         resamplenode.inputs.invert_transform_flags = [False]
+        resamplenode.inputs.ignore_exception = True
 
         # Evalutate the distance of the predicted image
         errmapnode = pe.Node(interface=AvgErrorMap(), name='errmap')
@@ -512,7 +529,7 @@ class MrRegival (object):
             wf.connect(errmapnode, 'avgerr', outputnode, 'distance')
             wf.connect(errmapnode, 'out_map', datasink, 'predicted.@errmap')
 
-        g = wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()})
+        g = wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()-1})
         return g
 
 

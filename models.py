@@ -4,6 +4,7 @@ import re
 import csv
 from sets import Set
 import itertools
+import random
 
 
 # Model for general MR image subject
@@ -275,3 +276,20 @@ class AdniMrCollection(object):
           cleanmatch.append(m[2:]) # Remove the '_' before image id 
 
         return cleanmatch[0] if len(cleanmatch) == 1 else None
+
+    def randomselect(self, ncase, interval):
+        '''
+        Randomly select #ncase from the elligible_pairs
+        It will reset self._ladnimr
+        '''
+        self.filtermodels()
+        epairs = self.filter_elligible_pairs(interval=interval)
+        assert len(epairs) > ncase, 'not enough elligible pairs to be filtered'
+        subset = list(random.sample(Set(epairs), ncase))
+        subsetfollowups = self.find_followups(subset, interval=interval)
+        allepairs = subset+subsetfollowups
+        self._ladnimr = list(Set([p.fixedimage for p in allepairs] + [p.movingimage for p in allepairs]))
+        return self._ladnimr
+    
+    def getdiffpairs(self):
+        return list(itertools.product(self.find_transform_pairs(), repeat=2))
