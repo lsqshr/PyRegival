@@ -243,13 +243,13 @@ class AdniMrCollection(object):
         return list(itertools.chain(*[followupdict[x] for x in pairs]))
 
 
-    def write_meta(self):
+    def writemeta(self):
         '''
         Write the current lmodel to a csv file
         '''
         print 'ladnimr:', self._ladnimr
         print 'keys: ', self._ladnimr[0].getmetadict().keys()
-        with open(join(self.dbpath, 'dbgen-pyregival.csv'), 'wb') as f:
+        with open(join(self.dbpath, 'dbgen.csv'), 'wb') as f:
             writer = csv.DictWriter(f, delimiter=',', fieldnames=self._ladnimr[0].getmetadict().keys())
             writer.writeheader()
             for m in self._ladnimr:
@@ -277,6 +277,7 @@ class AdniMrCollection(object):
 
         return cleanmatch[0] if len(cleanmatch) == 1 else None
 
+
     def randomselect(self, ncase, interval):
         '''
         Randomly select #ncase from the elligible_pairs
@@ -291,5 +292,32 @@ class AdniMrCollection(object):
         self._ladnimr = list(Set([p.fixedimage for p in allepairs] + [p.movingimage for p in allepairs]))
         return self._ladnimr
     
+
     def getdiffpairs(self):
         return list(itertools.product(self.find_transform_pairs(), repeat=2))
+
+
+    def getmodelbymeta(self, metadict):
+        '''
+        Return the models that satisfy the given meta dict <metakey: [values]>
+        '''
+        lmodel = []
+        for m in self._ladnimr: # its too long to fit in the one line list
+            isneeded = True
+            for key, valuelist in metadict.iteritems():
+                if m.getmetafield(key) not in valuelist:
+                    isneeded = False
+                    print m.getmetafield(key), 'is not in', valuelist
+            if isneeded:
+                lmodel.append(m)
+
+        return lmodel
+
+    
+    def removesbjbyimg(self, lcrashedimg):
+        sbjdict = self.group_pairs()
+        for m in lcrashedimg:
+            crashrid = m.getmetafield('RID')
+            sbjdict.pop(crashrid, None)
+
+        self._ladnimr = sbjdict.values()

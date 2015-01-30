@@ -14,6 +14,7 @@ from additional_nipype_interfaces import *
 import itertools
 import pickle
 import numpy as np
+import datetime
 import time
 
 class MrRegival (object): 
@@ -49,23 +50,37 @@ class MrRegival (object):
         self._collection.filtermodels(interval) # Only keep the usable cases
         if len(self._collection.getmrlist()) == 0:
             raise Exception('No elligible MR found in: %s. Please double-check' % self.dbpath)
+
+        # FSL is likely to crash due to some inputs for some unknown cause)
+        while(True):
+            try:
+                self.starttime = datetime.datetime.now() # Used for filtering the crash files 
+                start = time.time()
+                self.normalise(normtemplatepath, normalise_method, ignoreexception=False)
+                end = time.time()
+                logstr = 'The normalisation took %f seconds, %f seconds each of %d in total' % \
+                      (end-start, (end-start)/len(self._collection.getmrlist()),  \
+                      len(self._collection.getmrlist()))
+                print logstr
+                self._log.append(logstr)
+                break
+            except Exception: # When there is an error stops the progress find out the image id 
+                              # and remove its corresponding patient then try again
+                crashedmodels = self._find_crashed()
+                self._collection.removesbjbyimg(crashedmodels)
+                print 'Rerun Normalisation due to crash'
+        
+        self._collection.writemeta()
+        
         start = time.time()
-        self.normalise(normtemplatepath, normalise_method)
-        end = time.time()
-        logstr = 'The normalisation took %f seconds, %f seconds each of %d in total' % \
-              (end-start, (end-start)/len(self._collection.getmrlist()),  \
-              len(self._collection.getmrlist()))
-        print logstr
-        self._log.append(logstr)
-        start = time.time()
-        self.transform()
+        self.transform(ignoreexception=False)
         end = time.time()
         logstr = 'The transformation took %f seconds, %f seconds each of %d in total' % \
               (end-start, (end-start)/len(self._collection.find_transform_pairs()), \
               len(self._collection.find_transform_pairs()))
         self._log.append(logstr)
         start = time.time()
-        g = self.transdiff() # transdiff does not consider the different intervals
+        g = self.transdiff(ignoreexception=False) # transdiff does not consider the different intervals
         diffs = list(itertools.product(self._collection.find_transform_pairs(), repeat=2)) # Since models were filtered before, the pairs here should be only the elligible ones
         end = time.time()
         logstr = 'The transdiff took %f seconds, %f seconds each of %d in total' % \
@@ -99,7 +114,7 @@ class MrRegival (object):
 
 
     def normalise(self, normtemplatepath='MNI152_T1_2mm_brain.nii.gz', 
-                normalise_method='ANTS', lmodel=None):
+                normalise_method='FSL', lmodel=None, ignoreexception=False):
         ''' 
         Normalisation Pipeline with either FSL flirt or ANTS antsIntroduction
 
@@ -131,10 +146,10 @@ class MrRegival (object):
         """
         stdroi = pe.Node(StdRoi(), name='standard_space_roi')
         stdroi.inputs.betpremask = True
-        stdroi.inputs.ignore_exception = True
+        stdroi.inputs.ignore_exception = ignoreexception
         stripper = pe.Node(fsl.BET(), name='stripper')
         stripper.inputs.frac = 0.2
-        stripper.inputs.ignore_exception = True
+        stripper.inputs.ignore_exception = ignoreexception
 
         #stripper.inputs.robust = True
         #stripper.inputs.reduce_bias = True
@@ -148,17 +163,17 @@ class MrRegival (object):
             normwarp.inputs.reference = normtemplatepath
             normwarp.inputs.output_type = "NIFTI_GZ"       #stripper.inputs.padding = True
             normwarp.inputs.out_file = 'norm_deformed.nii.gz'
-            normwarp.inputs.ignore_exception = True
+            normwarp.inputs.ignore_exception = ignoreexception
             infield  = 'in_file'
             outfield = 'out_file'
         elif normalise_method == 'ANTS':
             normwarp = pe.Node(antsIntroduction(), name='ants')
             normwarp.inputs.reference_image = normtemplatepath
-            normwarp.inputs.max_iterations = [30,90,20]
+            #normwarp.inputs.max_iterations = [30,90,20]
             normwarp.inputs.num_threads = 1 # This parameter will not take effects
-            normwarp.inputs.transformation_model = 'RI'
+            normwarp.inputs.transformation_model = 'RA'
             normwarp.inputs.out_prefix = 'norm_'
-            normwarp.inputs.ignore_exception = True
+            normwarp.inputs.ignore_exception = ignoreexception 
             infield  = 'input_image'
             outfield = 'output_file'
 
@@ -168,10 +183,69 @@ class MrRegival (object):
         wf.connect(normwarp, outfield, datasink, 'preprocessed')
 
         # Run workflow with all cpus available
-        wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()-1})
+        wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()})
+
+        self._autoredonorm(normtemplatepath, normalise_method) # FSL crash sometimes without any explaination 
+
+    
+    def _find_crashed(self):
+        lcrashimgid = []
+        for fname in glob.glob('crash*'):
+            datestr, timestr = fname.split('-')[1:3]
+            fd = datetime.date(year=int(datestr[:4]), month=int(datestr[4:6]), day=int(datestr[6:]))
+            ft = datetime.time(hour=int(timestr[:2]), minute=int(timestr[2:4]), second=int(timestr[4:]))
+            if self.starttime.date() == fd and ft > self.starttime.time():
+                with gzip.open(fname, 'rb') as f:
+                    node = pickle.load(f)['node']
+                    if len(node.input_source) is not 0:
+                        infile = node.input_source['in_file'][0]
+                        print infile
+                        imgid = infile.split('/')[4].replace('_imgid_', '')
+                        lcrashimgid.append(imgid)
+
+        # Get the set of lmodels
+        lcrashimgid = list(set(lcrashimgid))
+        crashedmodels = self._collection.getmodelbymeta({'Image.Data.ID': lcrashimgid})
+        print lcrashimgid
+        print crashedmodels
+
+        return crashedmodels
 
 
-    def transform(self, transpairs=None, lmodel=None):
+    ''' Just found the redo does not fix the problem, it is the input image broke the bet with an unknown cause
+    def autoredonorm(self, normtemplatepath='MNI152_T1_2mm_brain.nii.gz', normalise_method='FSL'):
+        print 'Auto redo the failed cases:'
+
+        # Find the crash files belong to this build
+        # Find all crash files
+        import glob, gzip
+
+        lcrashimgid = []
+        for fname in glob.glob('crash*'):
+            datestr, timestr = fname.split('-')[1:3]
+            fd = datetime.date(year=int(datestr[:4]), month=int(datestr[4:6]), day=int(datestr[6:]))
+            ft = datetime.time(hour=int(timestr[:2]), minute=int(timestr[2:4]), second=int(timestr[4:]))
+            if self.starttime.date() == fd and ft > self.starttime.time():
+                with gzip.open(fname, 'rb') as f:
+                    node = pickle.load(f)['node']
+                    if len(node.input_source) is not 0:
+                        infile = node.input_source['in_file'][0]
+                        print infile
+                        imgid = infile.split('/')[4].replace('_imgid_', '')
+                        lcrashimgid.append(imgid)
+
+        # Get the set of lmodels
+        lcrashimgid = list(set(lcrashimgid))
+        crashedmodels = self._collection.getmodelbymeta({'Image.Data.ID': lcrashimgid})
+        print lcrashimgid
+        print crashedmodels
+
+        # rerun the normalisation with the failed ones
+        self.normalise(normtemplatepath=normtemplatepath, normalise_method=normalise_method, ignoreexception=False, lmodel=crashedmodels)
+    '''
+
+
+    def transform(self, transpairs=None, lmodel=None, ignoreexception=False):
 
         if lmodel == None:
             lmodel = self._collection.getmrlist()
@@ -239,10 +313,10 @@ class MrRegival (object):
         wf.connect(transnode, 'warped_image', datasink, 'SyNQuick.@warped_image')
 
         # Run workflow with all cpus available
-        wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()-1})# Compare two different transforms
+        wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()})# Compare two different transforms
 
 
-    def transdiff(self, diffpairs=None):
+    def transdiff(self, diffpairs=None, ignoreexception=False):
         if diffpairs == None:
             diffpairs = self._collection.getdiffpairs()
         inputnode = pe.MapNode(interface=niu.IdentityInterface(fields=['sbj1_mov_imgid',
@@ -323,7 +397,7 @@ class MrRegival (object):
                     ])
 
         # Run workflow with all cpus available
-        g = wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()-1})
+        g = wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()})
         return g
 
 
@@ -529,7 +603,7 @@ class MrRegival (object):
             wf.connect(errmapnode, 'avgerr', outputnode, 'distance')
             wf.connect(errmapnode, 'out_map', datasink, 'predicted.@errmap')
 
-        g = wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()-1})
+        g = wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()})
         return g
 
 
