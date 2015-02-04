@@ -6,6 +6,7 @@ from nipype.interfaces.ants.legacy import antsIntroduction
 from nipype.interfaces.ants import Registration
 from nipype.interfaces.ants import ApplyTransforms
 from nipype.interfaces.utility import Function
+from nipype.algorithms.metrics import ErrorMap
 from os.path import * 
 import os
 import multiprocessing
@@ -25,13 +26,16 @@ class MrRegival (object):
         if collection is not None:
             self._collection = collection
         elif dbpath is not None: # Extract new collection when collection is not given
-            self._collection = AdniMrCollection(dbpath=dbpath)
+            if exists(join(dbpath, 'dbgen.csv')):
+                self._collection = AdniMrCollection(dbpath=dbpath, regendb=False)
+            else:
+                self._collection = AdniMrCollection(dbpath=dbpath, regendb=True)
 
         self._ptemplate = None
         self._log = []
 
     def build(self, normtemplatepath='MNI152_T1_2mm_brain.nii.gz', 
-                       normalise_method='ANTS',
+                       normalise_method='FSL',
                        interval=[12]):
 
         '''
@@ -74,7 +78,7 @@ class MrRegival (object):
 
         for node in g.nodes():
             if node.name == 'errmap':
-                errmap = node.result.outputs.avgerr # The order is the same with self.diffs
+                errmap = node.result.outputs.distance # The order is the same with self.diffs
 
         self._ptemplate = {}
         self._ptemplate['transpairs'] = self._collection.find_transform_pairs()
@@ -92,6 +96,9 @@ class MrRegival (object):
     def getcollection(self):
         return self._collection
 
+    def setcollection(self, collection):
+        self._collection = collection
+
     def load_ptemplate(self, filepath='ptemplate.pkl'):
         with open(filepath, 'rb') as infile:
             self._ptemplate = pickle.load(infile)
@@ -99,11 +106,12 @@ class MrRegival (object):
 
 
     def normalise(self, normtemplatepath='MNI152_T1_2mm_brain.nii.gz', 
-                normalise_method='ANTS', lmodel=None):
+                normalise_method='FSL', lmodel=None, ignoreexception=False, ncore=2):
         ''' 
         Normalisation Pipeline with either FSL flirt or ANTS antsIntroduction
 
         '''
+        normtemplatepath = abspath(normtemplatepath)
         if lmodel == None:
             lmodel = self._collection.getmrlist()
         
@@ -131,10 +139,10 @@ class MrRegival (object):
         """
         stdroi = pe.Node(StdRoi(), name='standard_space_roi')
         stdroi.inputs.betpremask = True
-        stdroi.inputs.ignore_exception = True
+        stdroi.inputs.ignore_exception = ignoreexception
         stripper = pe.Node(fsl.BET(), name='stripper')
-        stripper.inputs.frac = 0.2
-        stripper.inputs.ignore_exception = True
+        stripper.inputs.frac = 0.25
+        stripper.inputs.ignore_exception = ignoreexception
 
         #stripper.inputs.robust = True
         #stripper.inputs.reduce_bias = True
@@ -148,7 +156,7 @@ class MrRegival (object):
             normwarp.inputs.reference = normtemplatepath
             normwarp.inputs.output_type = "NIFTI_GZ"       #stripper.inputs.padding = True
             normwarp.inputs.out_file = 'norm_deformed.nii.gz'
-            normwarp.inputs.ignore_exception = True
+            normwarp.inputs.ignore_exception = ignoreexception
             infield  = 'in_file'
             outfield = 'out_file'
         elif normalise_method == 'ANTS':
@@ -158,7 +166,7 @@ class MrRegival (object):
             normwarp.inputs.num_threads = 1 # This parameter will not take effects
             normwarp.inputs.transformation_model = 'RI'
             normwarp.inputs.out_prefix = 'norm_'
-            normwarp.inputs.ignore_exception = True
+            normwarp.inputs.ignore_exception = ignoreexception
             infield  = 'input_image'
             outfield = 'output_file'
 
@@ -168,10 +176,10 @@ class MrRegival (object):
         wf.connect(normwarp, outfield, datasink, 'preprocessed')
 
         # Run workflow with all cpus available
-        wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()-1})
+        wf.run(plugin='MultiProc', plugin_args={'n_procs' : ncore})
 
 
-    def transform(self, transpairs=None, lmodel=None):
+    def transform(self, transpairs=None, lmodel=None, ignoreexception=False, ncore=2):
 
         if lmodel == None:
             lmodel = self._collection.getmrlist()
@@ -204,7 +212,7 @@ class MrRegival (object):
                                iterfield=['fixed_image', 'moving_image'])
         transnode.inputs.output_prefix = 'out'
         transnode.inputs.dimension = 3 
-        transnode.inputs.ignore_exception = True
+        transnode.inputs.ignore_exception = ignoreexception
         #transnode = make_antsRegistrationNode() # in nipype antsRegistration has a non-valid flag: 
                                                  # `--collapse-linear-transforms-to-fixed-image-header` 
                                                  # which cannot be turned off till 10/1/15
@@ -239,10 +247,10 @@ class MrRegival (object):
         wf.connect(transnode, 'warped_image', datasink, 'SyNQuick.@warped_image')
 
         # Run workflow with all cpus available
-        wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()-1})# Compare two different transforms
+        wf.run(plugin='MultiProc', plugin_args={'n_procs' : ncore})# Compare two different transforms
 
 
-    def transdiff(self, diffpairs=None):
+    def transdiff(self, diffpairs=None, ignoreexception=False, ncore=2):
         if diffpairs == None:
             diffpairs = self._collection.getdiffpairs()
         inputnode = pe.MapNode(interface=niu.IdentityInterface(fields=['sbj1_mov_imgid',
@@ -279,13 +287,13 @@ class MrRegival (object):
                            iterfield=['fixed_image', 'moving_image'])
         transnode.inputs.output_prefix = 'out'
         transnode.inputs.dimension = 3 
-        transnode.inputs.ignore_exception = True
+        transnode.inputs.ignore_exception = ignoreexception
 
         composenode = pe.MapNode(interface=ComposeMultiTransform(), name='compose',
                    iterfield=['reference', 'transform1', 'transform2'])
         composenode.inputs.dimension = 3
         composenode.inputs.output_file = 'a2a.nii.gz'
-        composenode.inputs.ignore_exception = True
+        composenode.inputs.ignore_exception = ignoreexception
 
         resamplenode = pe.MapNode(interface=ApplyTransforms(), name='resample', 
                                   iterfield=['input_image', 'reference_image', 'transforms']) 
@@ -294,11 +302,11 @@ class MrRegival (object):
         resamplenode.inputs.interpolation = 'Linear'
         resamplenode.inputs.default_value = 0
         resamplenode.inputs.invert_transform_flags = [False]
-        resamplenode.inputs.ignore_exception = True
+        resamplenode.inputs.ignore_exception = ignoreexception
 
-        errmapnode = pe.MapNode(interface=AvgErrorMap(), name='errmap', 
+        errmapnode = pe.MapNode(interface=ErrorMap(), name='errmap', 
                                     iterfield=['in_ref', 'in_tst'])
-        errmapnode.ignore_exception = True
+        errmapnode.ignore_exception = ignoreexception
 
         outputnode = pe.Node(interface=niu.IdentityInterface(fields=['distance']),
                                 name='transdiff_outputnode')
@@ -319,15 +327,15 @@ class MrRegival (object):
                     (trans_datasource, resamplenode, [('sbj1_fix_img', 'reference_image')]),
                     (resamplenode, errmapnode, [('output_image', 'in_ref')]),
                     (trans_datasource, errmapnode, [('sbj1_fix_img', 'in_tst')]),
-                    (errmapnode, outputnode, [('avgerr', 'distance')]),
+                    (errmapnode, outputnode, [('distance', 'distance')]),
                     ])
 
         # Run workflow with all cpus available
-        g = wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()-1})
+        g = wf.run(plugin='MultiProc', plugin_args={'n_procs' : ncore})
         return g
 
 
-    def predict(self, targetpair, N=0, t=0.5, rowweight=0.5, colweight=0.5, real_followupid=None, option='change', ptemplate=None):
+    def predict(self, targetpair, N=0, t=0.5, rowweight=0.5, colweight=0.5, real_followupid=None, option='change', ptemplate=None, ncore=2):
         '''
         targetpair: tuple (mrid1, mrid2, interval)
         N : Int the number of neighbours to merge 
@@ -371,15 +379,15 @@ class MrRegival (object):
         followuppairs = self._collection.find_followups(elligible_pairs, interval=[targetpair.getinterval()]) 
 
         # Merge these templates by weighting
-        g = self.merge(followuppairs, ew, targetpair, followup_id=real_followupid)
+        g = self.merge(followuppairs, ew, targetpair, followup_id=real_followupid, ncore=2)
 
-        avgerr = None
+        distance = None
         if real_followupid is not None:
             for node in g.nodes():
                 if node.name == 'errmap':
-                    avgerr = node.result.outputs.avgerr 
+                    avgerr = node.result.outputs.distance
 
-            print 'The resampling distance is: ', avgerr 
+            print 'The resampling distance is: ', distance 
         else:
             'The real followup id is not provided, no comparison was possible...'
 
@@ -413,7 +421,7 @@ class MrRegival (object):
         return simmat, elligible_pairs
 
 
-    def merge(self, pairs, w, targetpair, followup_id = None):
+    def merge(self, pairs, w, targetpair, followup_id = None, ncore=2):
         inputnode = pe.MapNode(interface=niu.IdentityInterface(fields=['transa_imageid',
                                                                        'transb_imageid',
                                                                        'targetb_imageid', 'w']),
@@ -480,7 +488,7 @@ class MrRegival (object):
         resamplenode.inputs.ignore_exception = True
 
         # Evalutate the distance of the predicted image
-        errmapnode = pe.Node(interface=AvgErrorMap(), name='errmap')
+        errmapnode = pe.Node(interface=ErrorMap(), name='errmap')
 
         # Data Sink to save the summed transform and the resampled image
         datasink = pe.Node(nio.DataSink(infields=['container',
@@ -526,10 +534,10 @@ class MrRegival (object):
 
             wf.connect(followup_datasource, 'followupimage', errmapnode, 'in_ref')
             wf.connect(resamplenode, 'output_image', errmapnode, 'in_tst')
-            wf.connect(errmapnode, 'avgerr', outputnode, 'distance')
+            wf.connect(errmapnode, 'distance', outputnode, 'distance')
             wf.connect(errmapnode, 'out_map', datasink, 'predicted.@errmap')
 
-        g = wf.run(plugin='MultiProc', plugin_args={'n_procs' : multiprocessing.cpu_count()-1})
+        g = wf.run(plugin='MultiProc', plugin_args={'n_procs' : ncore})
         return g
 
 

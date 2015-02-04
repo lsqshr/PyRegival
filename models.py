@@ -149,6 +149,10 @@ class AdniMrCollection(object):
     def getmrlist(self):
         return self._ladnimr
 
+    
+    def setmrlist(self, lmr):
+        self._ladnimr = lmr
+        
 
     # Return Image.Data.ID pairs [[fixed_img_id1, moving_img_id1], [fixed_img_id2, moving_img_id2],...]
     def find_transform_pairs(self, interval=[6,12]):
@@ -173,7 +177,7 @@ class AdniMrCollection(object):
     def group_sbj(self):
         sbjdict = {}
         for model in self._ladnimr:
-            rid     = model.getmetafield('RID') 
+            rid = model.getmetafield('RID') 
 
             if rid in sbjdict:
                 sbjdict[rid].append(model)
@@ -243,13 +247,13 @@ class AdniMrCollection(object):
         return list(itertools.chain(*[followupdict[x] for x in pairs]))
 
 
-    def write_meta(self):
+    def write_meta(self, file='dbgen.csv'):
         '''
         Write the current lmodel to a csv file
         '''
-        print 'ladnimr:', self._ladnimr
-        print 'keys: ', self._ladnimr[0].getmetadict().keys()
-        with open(join(self.dbpath, 'dbgen-pyregival.csv'), 'wb') as f:
+        #print 'ladnimr:', self._ladnimr
+        #print 'keys: ', self._ladnimr[0].getmetadict().keys()
+        with open(join(self.dbpath, fname), 'wb') as f:
             writer = csv.DictWriter(f, delimiter=',', fieldnames=self._ladnimr[0].getmetadict().keys())
             writer.writeheader()
             for m in self._ladnimr:
