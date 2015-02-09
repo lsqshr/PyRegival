@@ -8,15 +8,15 @@ import itertools
 
 NTEST = 1
 interval = [12]
-dbpath = '/media/siqi/SiqiLarge/ADNI-For-Pred'
-ncore = 4
+dbpath = '/home/siqi/ADNI-For-Pred'
+ncore = 16 
 
 c = AdniMrCollection(dbpath=dbpath, regendb=False)
-c.randomselect(60, interval)
+#c.randomselect(60, interval)
 
 reg = MrRegival(collection=c, dbpath=dbpath)
-reg.normalise(ignoreexception=True, ncore=ncore)
-reg.transform(ignoreexception=True, ncore=ncore)
+#reg.normalise(ignoreexception=True, ncore=ncore)
+#reg.transform(ignoreexception=True, ncore=ncore)
 
 epairs = reg.getcollection().filter_elligible_pairs(interval=interval)
 testset = epairs[0:NTEST] # Try one case
@@ -29,8 +29,8 @@ else:
 	for p in testset:
 		diffs += list(itertools.product(p, templateset))
 
-transdistance = reg.transdiff(diffs, option='trans', ignoreexception=False, ncore=4)
-imagedistance = reg.transdiff(diffs, option='image', ignoreexception=False, ncore=4)
+transdistance = reg.transdiff(diffs, option='trans', ignoreexception=False, ncore=ncore)
+imagedistance = reg.transdiff(diffs, option='image', ignoreexception=False, ncore=ncore)
 
         
 ## Save the diffs
@@ -45,6 +45,7 @@ session['reg'] = reg
 with open(join(self.dbpath, 'expttemplate.pkl'), 'wb') as outfile:
     pickle.dump(session, outfile)
 
+'''
 
 # Make the prediction
 if NTEST == 1:
@@ -60,3 +61,4 @@ for p in testset:
 	w = [t[1] for t in targettemplates]
 	predictionerr = reg.predict(testset, tset, w, real_followupid=followid)
 	print 'prediction err is', predictionerr
+'''
