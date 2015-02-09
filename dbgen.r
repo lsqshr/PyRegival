@@ -23,7 +23,7 @@ usePackage("R.matlab")
 usePackage("zoo")
 
 if (!is.element("ADNIMERGE", installed.packages()[,1]))
-  install.packages("your/path/to/ADNIMERGE.tar.gz", repo=NULL, type="source")
+  install.packages("/home/siqi/Downloads/ADNIMERGE_0.0.1.tar.gz", repo=NULL, type="source")
 require("ADNIMERGE", character.only = TRUE)
 
 args <- commandArgs(trailingOnly = TRUE)

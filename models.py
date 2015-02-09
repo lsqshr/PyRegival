@@ -206,8 +206,11 @@ class AdniMrCollection(object):
 
     def filter_elligible_pairs(self, pairs=None, interval=[12]):
 	'''
-	Filter the models with at 1 follow up
+	Filter the pairs with at 1 follow up
 	'''
+        if pairs is None:
+            pairs = self.find_transform_pairs()
+
         sbjdict = self.group_pairs(pairs, interval)
 
         elligible_pairs = []

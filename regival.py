@@ -34,70 +34,14 @@ class MrRegival (object):
         self._ptemplate = None
         self._log = []
 
-    def build(self, normtemplatepath='MNI152_T1_2mm_brain.nii.gz', 
-                       normalise_method='FSL',
-                       interval=[12]):
-
-        '''
-        lmodel: a list of adnimrimg objects
-        normtemplatepath: the template used by the normalisation
-
-        '''
-        normtemplatepath = abspath(normtemplatepath)
-        # Cleanup the current results folder, otherwise the directory may mess up
-        # So if you want to keep the previous data, pls backup them
-        import shutil
-        if exists(join(self.dbpath, 'results')):
-            shutil.rmtree(join(self.dbpath, 'results'))
-
-        self._collection.filtermodels(interval) # Only keep the usable cases
-        if len(self._collection.getmrlist()) == 0:
-            raise Exception('No elligible MR found in: %s. Please double-check' % self.dbpath)
-        start = time.time()
-        self.normalise(normtemplatepath, normalise_method)
-        end = time.time()
-        logstr = 'The normalisation took %f seconds, %f seconds each of %d in total' % \
-              (end-start, (end-start)/len(self._collection.getmrlist()),  \
-              len(self._collection.getmrlist()))
-        print logstr
-        self._log.append(logstr)
-        start = time.time()
-        self.transform()
-        end = time.time()
-        logstr = 'The transformation took %f seconds, %f seconds each of %d in total' % \
-              (end-start, (end-start)/len(self._collection.find_transform_pairs()), \
-              len(self._collection.find_transform_pairs()))
-        self._log.append(logstr)
-        start = time.time()
-        g = self.transdiff() # transdiff does not consider the different intervals
-        diffs = list(itertools.product(self._collection.find_transform_pairs(), repeat=2)) # Since models were filtered before, the pairs here should be only the elligible ones
-        end = time.time()
-        logstr = 'The transdiff took %f seconds, %f seconds each of %d in total' % \
-              (end-start, (end-start)/len(diffs), len(diffs))
-        self._log.append(logstr)
-
-        for node in g.nodes():
-            if node.name == 'errmap':
-                errmap = node.result.outputs.distance # The order is the same with self.diffs
-
-        self._ptemplate = {}
-        self._ptemplate['transpairs'] = self._collection.find_transform_pairs()
-        diffs = [((d[0].fixedimage.getimgid(), d[0].movingimage.getimgid()),\
-                 (d[1].fixedimage.getimgid(), d[1].movingimage.getimgid())) for d in diffs] # Use the imgid pairs instead of the pair model tuples for keys
-        self._ptemplate['distance'] = dict(zip(diffs, errmap)) 
-        self._ptemplate['lmodel'] = self._collection.getmrlist() 
-
-        with open(join(self.dbpath, 'ptemplate.pkl'), 'wb') as outfile:
-            pickle.dump(self._ptemplate, outfile)
-
-        return self._ptemplate
-
 
     def getcollection(self):
         return self._collection
 
+
     def setcollection(self, collection):
         self._collection = collection
+
 
     def load_ptemplate(self, filepath='ptemplate.pkl'):
         with open(filepath, 'rb') as infile:
@@ -105,7 +49,7 @@ class MrRegival (object):
         return self._ptemplate
 
 
-    def normalise(self, normtemplatepath='MNI152_T1_2mm_brain.nii.gz', 
+    def normalise(self, normtemplatepath='MNI152_T1_1mm_brain.nii.gz', 
                 normalise_method='FSL', lmodel=None, ignoreexception=False, ncore=2):
         ''' 
         Normalisation Pipeline with either FSL flirt or ANTS antsIntroduction
@@ -179,10 +123,8 @@ class MrRegival (object):
         wf.run(plugin='MultiProc', plugin_args={'n_procs' : ncore})
 
 
-    def transform(self, transpairs=None, lmodel=None, ignoreexception=False, ncore=2):
+    def transform(self, transpairs=None, ignoreexception=False, ncore=2):
 
-        if lmodel == None:
-            lmodel = self._collection.getmrlist()
         if transpairs == None:
             self._collection.filtermodels() # filter the models when this method is called externally 
             transpairs = self._collection.find_transform_pairs()
@@ -250,7 +192,11 @@ class MrRegival (object):
         wf.run(plugin='MultiProc', plugin_args={'n_procs' : ncore})# Compare two different transforms
 
 
-    def transdiff(self, diffpairs=None, ignoreexception=False, ncore=2):
+    def transdiff(self, diffpairs=None, option='trans', ignoreexception=False, ncore=2):
+        '''
+        diffpairs: list of (pair1, pair2)
+        option: 'trans'/'image'
+        '''
         if diffpairs == None:
             diffpairs = self._collection.getdiffpairs()
         inputnode = pe.MapNode(interface=niu.IdentityInterface(fields=['sbj1_mov_imgid',
@@ -312,71 +258,62 @@ class MrRegival (object):
                                 name='transdiff_outputnode')
 
         # build the workflow
-        wf = pe.Workflow(name="transform")
-        wf.connect([(inputnode, trans_datasource, [('sbj1_mov_imgid', 'sbj1_mov_imgid'),
-                                                   ('sbj1_fix_imgid', 'sbj1_fix_imgid'),
-                                                   ('sbj2_mov_imgid', 'sbj2_mov_imgid'),
-                                                   ('sbj2_fix_imgid', 'sbj2_fix_imgid')]),
-                    (trans_datasource, transnode, [('sbj2_mov_img', 'fixed_image'),
-                                                   ('sbj1_mov_img', 'moving_image')]),
-                    (trans_datasource, composenode, [('transform_2ab', 'transform1'),
-                                                     ('sbj1_fix_img', 'reference')]),
-                    (transnode, composenode, [('warp_field', 'transform2')]),
-                    (composenode, resamplenode, [('output_file', 'transforms')]),
-                    (trans_datasource, resamplenode, [('sbj1_mov_img', 'input_image')]),
-                    (trans_datasource, resamplenode, [('sbj1_fix_img', 'reference_image')]),
-                    (resamplenode, errmapnode, [('output_image', 'in_ref')]),
-                    (trans_datasource, errmapnode, [('sbj1_fix_img', 'in_tst')]),
-                    (errmapnode, outputnode, [('distance', 'distance')]),
-                    ])
+        wf = pe.Workflow(name="transdiff")
+        if option == 'trans':
+            wf.connect([(inputnode, trans_datasource, [('sbj1_mov_imgid', 'sbj1_mov_imgid'),
+                                                       ('sbj1_fix_imgid', 'sbj1_fix_imgid'),
+                                                       ('sbj2_mov_imgid', 'sbj2_mov_imgid'),
+                                                       ('sbj2_fix_imgid', 'sbj2_fix_imgid')]),
+                        (trans_datasource, transnode, [('sbj2_mov_img', 'fixed_image'),
+                                                       ('sbj1_mov_img', 'moving_image')]),
+                        (trans_datasource, composenode, [('transform_2ab', 'transform1'),
+                                                         ('sbj1_fix_img', 'reference')]),
+                        (transnode, composenode, [('warp_field', 'transform2')]),
+                        (composenode, resamplenode, [('output_file', 'transforms')]),
+                        (trans_datasource, resamplenode, [('sbj1_mov_img', 'input_image')]),
+                        (trans_datasource, resamplenode, [('sbj1_fix_img', 'reference_image')]),
+                        (resamplenode, errmapnode, [('output_image', 'in_ref')]),
+                        (trans_datasource, errmapnode, [('sbj1_fix_img', 'in_tst')]),
+                        (errmapnode, outputnode, [('distance', 'distance')]),
+                        ])
+        else:
+            wf.connect([(inputnode, trans_datasource, [('sbj1_mov_imgid', 'sbj1_mov_imgid'),
+                                                       ('sbj1_fix_imgid', 'sbj1_fix_imgid'),
+                                                       ('sbj2_mov_imgid', 'sbj2_mov_imgid'),
+                                                       ('sbj2_fix_imgid', 'sbj2_fix_imgid')]),
+                        (trans_datasource, errmapnode, [('sbj1_fix_img', 'in_tst'),
+                                                        ('sbj2_fix_img', 'in_ref')]),
+                        (errmapnode, outputnode, [('distance', 'distance')]),
+                        ])
 
         # Run workflow with all cpus available
         g = wf.run(plugin='MultiProc', plugin_args={'n_procs' : ncore})
-        return g
+        for node in g.nodes():
+            if node.name == 'errmap':
+                return node.result.outputs.distance # The order is the same with self.diffs
 
 
-    def predict(self, targetpair, N=0, t=0.5, rowweight=0.5, colweight=0.5, real_followupid=None, option='change', ptemplate=None, ncore=2):
+    def predict(self, targetpair, tpairs, w, N=0, t=0.5, real_followupid=None, ncore=2):
         '''
-        targetpair: tuple (mrid1, mrid2, interval)
+        targetpair : the pair to be simulated 
+        tpairs : template pairs that were used for comparison 
+        w : weights of the template; this weights can be totally coustmomised
         N : Int the number of neighbours to merge 
         t : Gaussian kernel density
-        rowweight: the relative weight of the row elements for neighbood building
-        colweight: the relative weight of the column elements for neighbood building
-        option: 'change'/'baseline image'/'both'/'random'/'even' The 'random' weigths are for 
+        ncore : n cpu cores to run the workflow
         '''
         start = time.time()
         if ptemplate == None:
             ptemplate = self._ptemplate
 
-        # Convert the distance dict to a matrix with the order of the mrid pairs
-        simmat, elligible_pairs = self._convert_ptemplate2matrix(interval=[targetpair.getinterval()]) 
-        # TODO: If this subject is not in the template, add this subject to the template
-
-        # Find the column and row of this subject, 
-        targetidx = elligible_pairs.index(targetpair)
-        matrow = simmat[targetidx, :]
-        matcol = simmat[:, targetidx]
-
-        # Assign itself with similairity of 0 in the matrix to ignore it when merge
-        allrid = [p.fixedimage.getmetafield('RID') for p in elligible_pairs]
-        targetrid = targetpair.fixedimage.getmetafield('RID')
-        all_target_sbj_idx = [i for i, x in enumerate(allrid) if x == targetrid]
-        w = (colweight * matcol + rowweight * matrow) / (colweight + rowweight)
         print 'raw distances are: ', w
         w = w / np.max(w)
 
-        #linterval = np.array([p.fixed_image.getviscode() - p.moving_image.getviscode()
-        #                      for p in elligible_pairs])
-
-        # Calculate the row&column weights distribution considering the interval
-        ew = np.exp(-(w/t))
-        ew[all_target_sbj_idx] = 0
-        ew = (ew).tolist()
-
+        ew = np.exp(-(w/t)).tolist()
         # Ignore for now : Find the top N neighbours from row/column by weighting 
 
         # Find the followup pairs of templates for merging
-        followuppairs = self._collection.find_followups(elligible_pairs, interval=[targetpair.getinterval()]) 
+        followuppairs = self._collection.find_followups(tpairs, interval=[targetpair.getinterval()]) 
 
         # Merge these templates by weighting
         g = self.merge(followuppairs, ew, targetpair, followup_id=real_followupid, ncore=2)
@@ -385,7 +322,7 @@ class MrRegival (object):
         if real_followupid is not None:
             for node in g.nodes():
                 if node.name == 'errmap':
-                    avgerr = node.result.outputs.distance
+                    distance = node.result.outputs.distance
 
             print 'The resampling distance is: ', distance 
         else:
@@ -397,28 +334,7 @@ class MrRegival (object):
         print logstr
         self._log.append(logstr)
 
-        return avgerr
-
-
-    def _convert_ptemplate2matrix(self, interval=None):
-        pairs = self._ptemplate['transpairs']
-        sim = self._ptemplate['distance']
-
-        # Remove the transpairs without following transpairs
-        elligible_pairs = self._collection.filter_elligible_pairs(pairs, interval)
-        simmat = np.zeros((len(elligible_pairs), len(elligible_pairs)))
-
-        print 'sim keys:'
-        print [ '%s-%s, %s-%s' % (p[0][0], p[0][1], p[1][0], p[1][1]) for p in sim.keys()]
-
-        for i, p1 in enumerate(elligible_pairs):
-            for j, p2 in enumerate(elligible_pairs):
-                #print '%s-%s, %s-%s' % (p1.movingimage.getimgid(), p1.fixedimage.getimgid(), 
-                #    p2.movingimage.getimgid(), p2.fixedimage.getimgid(),)
-                simmat[i,j] = sim[((p1.fixedimage.getimgid(), p1.movingimage.getimgid()), 
-                                   (p2.fixedimage.getimgid(), p2.movingimage.getimgid()))]
-
-        return simmat, elligible_pairs
+        return distance
 
 
     def merge(self, pairs, w, targetpair, followup_id = None, ncore=2):
@@ -543,6 +459,65 @@ class MrRegival (object):
 
     def printlog(self):
         print '\n'.join(self._log)
+
+    # Deprecated: Since it is not wise to run everything altogether
+    def build(self, normtemplatepath='MNI152_T1_2mm_brain.nii.gz', 
+                       normalise_method='FSL',
+                       interval=[12]):
+
+        '''
+        lmodel: a list of adnimrimg objects
+        normtemplatepath: the template used by the normalisation
+
+        '''
+        normtemplatepath = abspath(normtemplatepath)
+        # Cleanup the current results folder, otherwise the directory may mess up
+        # So if you want to keep the previous data, pls backup them
+        import shutil
+        if exists(join(self.dbpath, 'results')):
+            shutil.rmtree(join(self.dbpath, 'results'))
+
+        self._collection.filtermodels(interval) # Only keep the usable cases
+        if len(self._collection.getmrlist()) == 0:
+            raise Exception('No elligible MR found in: %s. Please double-check' % self.dbpath)
+        start = time.time()
+        self.normalise(normtemplatepath, normalise_method)
+        end = time.time()
+        logstr = 'The normalisation took %f seconds, %f seconds each of %d in total' % \
+              (end-start, (end-start)/len(self._collection.getmrlist()),  \
+              len(self._collection.getmrlist()))
+        print logstr
+        self._log.append(logstr)
+        start = time.time()
+        self.transform()
+        end = time.time()
+        logstr = 'The transformation took %f seconds, %f seconds each of %d in total' % \
+              (end-start, (end-start)/len(self._collection.find_transform_pairs()), \
+              len(self._collection.find_transform_pairs()))
+        self._log.append(logstr)
+        start = time.time()
+        g = self.transdiff() # transdiff does not consider the different intervals
+        diffs = list(itertools.product(self._collection.find_transform_pairs(), repeat=2)) # Since models were filtered before, the pairs here should be only the elligible ones
+        end = time.time()
+        logstr = 'The transdiff took %f seconds, %f seconds each of %d in total' % \
+              (end-start, (end-start)/len(diffs), len(diffs))
+        self._log.append(logstr)
+
+        for node in g.nodes():
+            if node.name == 'errmap':
+                errmap = node.result.outputs.distance # The order is the same with self.diffs
+
+        self._ptemplate = {}
+        self._ptemplate['transpairs'] = self._collection.find_transform_pairs()
+        diffs = [((d[0].fixedimage.getimgid(), d[0].movingimage.getimgid()),\
+                 (d[1].fixedimage.getimgid(), d[1].movingimage.getimgid())) for d in diffs] # Use the imgid pairs instead of the pair model tuples for keys
+        self._ptemplate['distance'] = dict(zip(diffs, errmap)) 
+        self._ptemplate['lmodel'] = self._collection.getmrlist() 
+
+        with open(join(self.dbpath, 'ptemplate.pkl'), 'wb') as outfile:
+            pickle.dump(self._ptemplate, outfile)
+
+        return self._ptemplate
 
 
 def trans_weighted_sum(transforms, weights):
