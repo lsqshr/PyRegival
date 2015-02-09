@@ -36,6 +36,8 @@ class StdRoi(FSLCommand):
 class SynQuickInputSpec(ANTSCommandInputSpec):
     dimension = traits.Enum(3, 2, argstr='-d %d', usedefault=False,
                             position=1, desc='image dimension (2 or 3)')
+    num_threads = traits.Int(usedefault=True, argstr='-n %d',
+                             nohash=True, desc="Number of ITK threads to use")
     fixed_image = InputMultiPath(File(exists=True), mandatory=True, argstr='-f %s',
                                     desc=('image to apply transformation to (generally a coregistered '
                                             'functional)'))
