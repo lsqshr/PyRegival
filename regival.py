@@ -227,7 +227,7 @@ class MrRegival (object):
                                                      sbj1_fix_img   = [['sbj1_fix_imgid']],
                                                      sbj2_mov_img   = [['sbj2_mov_imgid']],
                                                      sbj2_fix_img   = [['sbj2_fix_imgid']],
-                                                     transform_2ab = [['sbj2_mov_imgid','sbj2_fix_imgid'],])
+                                                     transform_2ab = [['sbj2_mov_imgid','sbj2_fix_imgid']])
         trans_datasource.inputs.sort_filelist = True
 
         transnode = pe.MapNode(interface=SynQuick(),
@@ -305,8 +305,6 @@ class MrRegival (object):
         ncore : n cpu cores to run the workflow
         '''
         start = time.time()
-        if ptemplate == None:
-            ptemplate = self._ptemplate
 
         print 'raw distances are: ', w
         w = w / np.max(w)
