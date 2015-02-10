@@ -49,7 +49,7 @@ class MrRegival (object):
         return self._ptemplate
 
 
-    def normalise(self, normtemplatepath='MNI152_T1_1mm_brain.nii.gz', 
+    def normalise(self, normtemplatepath='MNI152_T1_2mm_brain.nii.gz', 
                 normalise_method='FSL', lmodel=None, ignoreexception=False, ncore=2):
         ''' 
         Normalisation Pipeline with either FSL flirt or ANTS antsIntroduction
@@ -213,7 +213,7 @@ class MrRegival (object):
 
         trans_datasource = pe.MapNode(interface=nio.DataGrabber(
                                              infields=['sbj1_mov_imgid', 'sbj1_fix_imgid', 'sbj2_mov_imgid', 'sbj2_fix_imgid'],
-                                             outfields=['sbj1_mov_img', 'sbj1_fix_img', 'sbj2_mov_img', 'transform_2ab']),
+                                             outfields=['sbj1_mov_img', 'sbj1_fix_img', 'sbj2_mov_img', 'sbj2_fix_img', 'transform_2ab']),
                                       name='compose_datasource', 
                                       iterfield = ['sbj1_mov_imgid', 'sbj1_fix_imgid', 'sbj2_mov_imgid', 'sbj2_fix_imgid'])
         trans_datasource.inputs.base_directory = os.path.abspath(join(self.dbpath, 'results'))
@@ -221,10 +221,12 @@ class MrRegival (object):
         trans_datasource.inputs.field_template = dict(sbj1_mov_img   = join('preprocessed','_imgid_%s','norm_deformed.nii.gz'),
                                                       sbj1_fix_img   = join('preprocessed','_imgid_%s','norm_deformed.nii.gz'),
                                                       sbj2_mov_img   = join('preprocessed','_imgid_%s','norm_deformed.nii.gz'),
+                                                      sbj2_fix_img   = join('preprocessed','_imgid_%s','norm_deformed.nii.gz'),
                                                       transform_2ab = join('transformed','%s-%s','SyNQuick', 'transid*', 'out1Warp.nii.gz'))
         trans_datasource.inputs.template_args = dict(sbj1_mov_img   = [['sbj1_mov_imgid']],
                                                      sbj1_fix_img   = [['sbj1_fix_imgid']],
                                                      sbj2_mov_img   = [['sbj2_mov_imgid']],
+                                                     sbj2_fix_img   = [['sbj2_fix_imgid']],
                                                      transform_2ab = [['sbj2_mov_imgid','sbj2_fix_imgid'],])
         trans_datasource.inputs.sort_filelist = True
 
