@@ -4,7 +4,7 @@ import nipype.interfaces.utility as niu
 import nipype.interfaces.io as nio
 from nipype.interfaces.ants.legacy import antsIntroduction
 from nipype.interfaces.ants import Registration
-from nipype.interfaces.ants import ApplyTransforms
+from nipype.interfaces.ants import ApplyTransforms 
 from nipype.interfaces.utility import Function
 from nipype.algorithms.metrics import ErrorMap
 from os.path import * 
@@ -295,28 +295,38 @@ class MrRegival (object):
                 return node.result.outputs.distance # The order is the same with self.diffs
 
 
-    def predict(self, targetpair, tpairs, w, N=0, t=0.5, real_followupid=None, ncore=2):
+    def predict(self, targetpair, tpairs, w, K=4, t=0.5, real_followupid=None, ncore=2, outprefix=''):
         '''
         targetpair : the pair to be simulated 
         tpairs : template pairs that were used for comparison 
         w : weights of the template; this weights can be totally coustmomised
         N : Int the number of neighbours to merge 
         t : Gaussian kernel density
+        real_followupid: the followup image id for evaluation
         ncore : n cpu cores to run the workflow
         '''
         start = time.time()
+        #print 'raw distances are: ', w
+        w = w - np.average(w)
+        w = w / np.max(np.abs(w))
+        ew = np.exp(-(w/t))
+        # Find the top N neighbours from row/column by weighting 
+        ewcopy = np.array(ew, copy=True)
+        sortidx = np.argsort(ewcopy)
+        #ewcopy.sort()
+        selectedidx = sortidx[-K:]
 
-        print 'raw distances are: ', w
-        w = w / np.max(w)
-
-        ew = np.exp(-(w/t)).tolist()
-        # Ignore for now : Find the top N neighbours from row/column by weighting 
+        #cutthreshold = ewcopy[-K]
+        #condition =  ew >= cutthreshold
+        ew = ew[selectedidx] 
+        from operator import itemgetter 
+        tpairs = itemgetter(*selectedidx)(tpairs)
 
         # Find the followup pairs of templates for merging
         followuppairs = self._collection.find_followups(tpairs, interval=[targetpair.getinterval()]) 
 
         # Merge these templates by weighting
-        g = self.merge(followuppairs, ew, targetpair, followup_id=real_followupid, ncore=2)
+        g = self.merge(followuppairs, ew, targetpair, ncore=ncore, outprefix=outprefix)
 
         distance = None
         if real_followupid is not None:
@@ -337,10 +347,13 @@ class MrRegival (object):
         return distance
 
 
-    def merge(self, pairs, w, targetpair, followup_id = None, ncore=2):
+    def merge(self, pairs, w, targetpair, ncore=2, outprefix=''):
         inputnode = pe.MapNode(interface=niu.IdentityInterface(fields=['transa_imageid',
                                                                        'transb_imageid',
-                                                                       'targetb_imageid', 'w']),
+                                                                       'targetb_imageid',
+                                                                       'real_followupid',
+                                                                       'w', 
+                                                                       'transid']),
                                name='inputnode',
                                iterfield = ['transa_imageid', 'transb_imageid'])
 
@@ -348,13 +361,17 @@ class MrRegival (object):
         inputnode.inputs.transb_imageid = [ pair.fixedimage.getimgid() for pair in pairs ]
         inputnode.inputs.targeta_imageid = targetpair.movingimage.getimgid()
         inputnode.inputs.targetb_imageid = targetpair.fixedimage.getimgid()
+        inputnode.inputs.real_followupid = self._collection.find_followups([targetpair], [targetpair.getinterval()])[0].fixedimage.getimgid()
+        print inputnode.inputs.real_followupid
+        assert inputnode.inputs.real_followupid != None
         inputnode.inputs.w = w
+        inputnode.inputs.transid = '%s-%s' % (targetpair.movingimage.getimgid(), targetpair.fixedimage.getimgid())
 
         # Grab the transforms by id
         pred_datasource = pe.MapNode(interface=nio.DataGrabber(
                                              infields=['transa_imageid', 'transb_imageid', 'targetb_imageid'],
                                              outfields=['transa_image', 'targetb_image', 'trans']),
-                                      name='compose_datasource', 
+                                      name='pred_datasource', 
                                       iterfield = ['transa_imageid', 'transb_imageid'])
         pred_datasource.inputs.base_directory = os.path.abspath(join(self.dbpath, 'results'))
         pred_datasource.inputs.template = '*'
@@ -367,10 +384,14 @@ class MrRegival (object):
         pred_datasource.inputs.sort_filelist = True
 
         # The target datasource is for the final resampling, it only requires one filepath
-        target_datasource = pe.Node(interface=nio.DataGrabber(infields=['targetb_imageid'], outfields=['targetb_image']), name='target_datasource')
+        target_datasource = pe.Node(interface=nio.DataGrabber(infields=['targetb_imageid', 'real_followupid'],
+                                                              outfields=['targetb_image', 'real_followupimage']), 
+                                                              name='target_datasource')
         target_datasource.inputs.base_directory = os.path.abspath(join(self.dbpath, 'results'))
-        target_datasource.inputs.template = join('preprocessed','_imgid_%s','norm_deformed.nii.gz')
-        target_datasource.inputs.targetb_imageid = [targetpair.fixedimage.getimgid()]
+        target_datasource.inputs.field_template = dict(targetb_image=join('preprocessed','_imgid_%s','norm_deformed.nii.gz'),
+                                                       real_followupimage=join('preprocessed','_imgid_%s','norm_deformed.nii.gz'))
+        target_datasource.inputs.template_args = dict(targetb_image=[['targetb_imageid']], real_followupimage=[['real_followupid']])
+        #target_datasource.inputs.targetb_imageid = [targetpair.fixedimage.getimgid()]
         target_datasource.inputs.sort_filelist = True
 
         # Transform each IA to the target IA
@@ -414,7 +435,6 @@ class MrRegival (object):
                                                   'predicted.@errmap'
                                                   ]), name='mergesink')
         datasink.inputs.base_directory = os.path.abspath(join(self.dbpath, 'results', 'predicted'))
-        #datasink.inputs.substitutions = [('_transnode', 'transid')]
         datasink.inputs.parameterization = True
 
         outputnode = pe.Node(interface=niu.IdentityInterface(fields=['distance']), name='evaldistance')
@@ -422,8 +442,10 @@ class MrRegival (object):
         wf = pe.Workflow(name='prediction')
         wf.connect([(inputnode, pred_datasource, [('transa_imageid', 'transa_imageid'), 
                                                    ('transb_imageid', 'transb_imageid'), 
-                                                   ('targetb_imageid','targetb_imageid'),
+                                                   ('targetb_imageid','targetb_imageid')
                                                   ]),
+                    (inputnode, target_datasource, [('real_followupid', 'real_followupid'),
+                                                    ('targetb_imageid', 'targetb_imageid')]),
                     (inputnode, weighted_sum_node, [('w', 'weights')]),
                     (pred_datasource, transnode, [('transa_image', 'moving_image'),
                                                    ('targetb_image', 'fixed_image')]),
@@ -433,25 +455,16 @@ class MrRegival (object):
                     (composenode, weighted_sum_node, [('output_file', 'transforms')]),
                     (weighted_sum_node, resamplenode, [('out_file','transforms')]),
                     (target_datasource, resamplenode, [('targetb_image','input_image')]),
-                    (target_datasource, resamplenode, [('targetb_image','reference_image')]),
+                    (target_datasource, resamplenode, [('real_followupimage','reference_image')]),
                     (resamplenode, datasink, [('output_image','predicted.@trans_image')]),
+                    (inputnode, datasink, [('transid', 'container')]),
                     (weighted_sum_node, datasink, [('out_file', 'predicted.@predicted_trans')])
                    ])
-        if followup_id != None:
-            # Grab the follow up image
-            followup_datasource = pe.Node(interface=nio.DataGrabber(infields=['followupid'],
-                                                                    outfields=['followupimage']),
-                                                                    name='followup_datasource')
-            followup_datasource.inputs.base_directory = os.path.abspath(join(self.dbpath, 'results'))
-            followup_datasource.inputs.template = '*'
-            followup_datasource.inputs.template = join('preprocessed','_imgid_%s','norm_deformed.nii.gz')
-            followup_datasource.inputs.followupid = followup_id
-            followup_datasource.inputs.sort_filelist = True
-
-            wf.connect(followup_datasource, 'followupimage', errmapnode, 'in_ref')
-            wf.connect(resamplenode, 'output_image', errmapnode, 'in_tst')
-            wf.connect(errmapnode, 'distance', outputnode, 'distance')
-            wf.connect(errmapnode, 'out_map', datasink, 'predicted.@errmap')
+        # Grab the follow up image
+        wf.connect(target_datasource, 'real_followupimage', errmapnode, 'in_ref')
+        wf.connect(resamplenode, 'output_image', errmapnode, 'in_tst')
+        wf.connect(errmapnode, 'distance', outputnode, 'distance')
+        wf.connect(errmapnode, 'out_map', datasink, 'predicted.@errmap')
 
         g = wf.run(plugin='MultiProc', plugin_args={'n_procs' : ncore})
         return g
@@ -460,16 +473,13 @@ class MrRegival (object):
     def printlog(self):
         print '\n'.join(self._log)
 
+
+    '''
     # Deprecated: Since it is not wise to run everything altogether
     def build(self, normtemplatepath='MNI152_T1_2mm_brain.nii.gz', 
                        normalise_method='FSL',
                        interval=[12]):
 
-        '''
-        lmodel: a list of adnimrimg objects
-        normtemplatepath: the template used by the normalisation
-
-        '''
         normtemplatepath = abspath(normtemplatepath)
         # Cleanup the current results folder, otherwise the directory may mess up
         # So if you want to keep the previous data, pls backup them
@@ -518,13 +528,13 @@ class MrRegival (object):
             pickle.dump(self._ptemplate, outfile)
 
         return self._ptemplate
-
+        '''
 
 def trans_weighted_sum(transforms, weights):
     import nibabel as nib
     import numpy as np
     import os
-    #print 'weights vector is : ', weights
+
     for i, (path, w) in enumerate(zip(transforms, weights)):
         img = nib.load(path)
         data = img.get_data()
@@ -539,8 +549,6 @@ def trans_weighted_sum(transforms, weights):
     merged = merged / np.sum(weights) # Normalise
     newimg = nib.Nifti1Image(merged, affine)
     outfile = os.path.join(os.getcwd(), 'newtrans.nii.gz')
-    #outfile='newtrans.nii.gz'
-
     nib.save(newimg, outfile)
 
     return outfile 
