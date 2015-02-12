@@ -279,12 +279,19 @@ class MrRegival (object):
                         (errmapnode, outputnode, [('distance', 'distance')]),
                         ])
         else:
+            rigidnode = pe.MapNode(interface=Registration(), iterfield=['fixed_image', 'moving_image'])
+            rigidnode.inputs.trasforms = ['Rigid']
+            rigidnode.inputs.dimension = 3
+            rigidnode.inputs.metric = ['Mattes']*2
+            rigidnode.inputs.metric_weight = [1]*2 # Default (value ignored currently by ANTs)
+
             wf.connect([(inputnode, trans_datasource, [('sbj1_mov_imgid', 'sbj1_mov_imgid'),
                                                        ('sbj1_fix_imgid', 'sbj1_fix_imgid'),
                                                        ('sbj2_mov_imgid', 'sbj2_mov_imgid'),
                                                        ('sbj2_fix_imgid', 'sbj2_fix_imgid')]),
-                        (trans_datasource, errmapnode, [('sbj1_fix_img', 'in_tst'),
-                                                        ('sbj2_fix_img', 'in_ref')]),
+                        (trans_datasource, rigidnode, [('sbj1_fix_img', 'sbj2_fix_img')]),
+                        (trans_datasource, errmapnode, [('sbj2_fix_img', 'in_ref')]),
+                        (rigidnode, errmapnode, [('warped_image', 'in_tst')]),
                         (errmapnode, outputnode, [('distance', 'distance')]),
                         ])
 
@@ -388,6 +395,7 @@ class MrRegival (object):
                                                               outfields=['targetb_image', 'real_followupimage']), 
                                                               name='target_datasource')
         target_datasource.inputs.base_directory = os.path.abspath(join(self.dbpath, 'results'))
+        target_datasource.inputs.template = '*'
         target_datasource.inputs.field_template = dict(targetb_image=join('preprocessed','_imgid_%s','norm_deformed.nii.gz'),
                                                        real_followupimage=join('preprocessed','_imgid_%s','norm_deformed.nii.gz'))
         target_datasource.inputs.template_args = dict(targetb_image=[['targetb_imageid']], real_followupimage=[['real_followupid']])
@@ -434,7 +442,7 @@ class MrRegival (object):
                                                   'predicted.@predicted_trans',
                                                   'predicted.@errmap'
                                                   ]), name='mergesink')
-        datasink.inputs.base_directory = os.path.abspath(join(self.dbpath, 'results', 'predicted'))
+        datasink.inputs.base_directory = os.path.abspath(join(self.dbpath, 'results', outprefix + 'predicted'))
         datasink.inputs.parameterization = True
 
         outputnode = pe.Node(interface=niu.IdentityInterface(fields=['distance']), name='evaldistance')
@@ -543,12 +551,17 @@ def trans_weighted_sum(transforms, weights):
         if i == 0:
             merged = wdata
             affine = img.get_affine()
+            header = img.header
         else:
             merged +=wdata
 
     merged = merged / np.sum(weights) # Normalise
-    newimg = nib.Nifti1Image(merged, affine)
+    newtrans = nib.Nifti1Image(merged, affine)
+    # Copy header, otherwise the transform will be shifted
+    # Interstingly that nibabel won't allow you to assign the header directly
+    for key in header:
+        newtrans.header[key] = header[key]
     outfile = os.path.join(os.getcwd(), 'newtrans.nii.gz')
-    nib.save(newimg, outfile)
+    nib.save(newtrans, outfile)
 
     return outfile 

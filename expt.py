@@ -10,7 +10,7 @@ NTEST = 1
 interval = [12]
 dbpath = '/media/siqi/SiqiLarge/ADNI-For-Pred'
 ncore = 4
-K = 2
+K = 4
 TRIALSTART = 0
 TRIALEND = 60
 
@@ -79,7 +79,7 @@ for i, p in enumerate(testset):
     imgpreditctionerr = reg.predict(p, templateset, w, real_followupid=followid, ncore=ncore, K=K, outprefix='img')
     w = transdistance[i*len(templateset):(i+1)*len(templateset)]
     transpredictionerr = reg.predict(p, templateset, w, real_followupid=followid, ncore=ncore, K=K, outprefix='trans')
-    print 'prediction err is', predictionerr
-
+    print 'image prediction err is', imgpreditctionerr
+    print 'trans prediction err is', transpredictionerr 
 ## Evaluation
 
