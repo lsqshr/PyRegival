@@ -49,8 +49,8 @@ class MrRegival (object):
         return self._ptemplate
 
 
-    def normalise(self, normtemplatepath='MNI152_T1_2mm_brain.nii.gz', 
-                normalise_method='FSL', lmodel=None, ignoreexception=False, ncore=2):
+    def normalise(self, normtemplatepath='MNI152_T1_2mm_brain.nii.gz', templatebrainmask='MNI152_T1_2mm_brain_mask.nii.gz', 
+                  skullstripmethod='ANTS', normalise_method='FSL', lmodel=None, ignoreexception=False, ncore=2):
         ''' 
         Normalisation Pipeline with either FSL flirt or ANTS antsIntroduction
 
@@ -77,23 +77,30 @@ class MrRegival (object):
         # Start to make build the workflow
         wf = pe.Workflow(name="preprocess")
      
-        """
-        Estimate the tissue classes from the anatomical image. But use spm's segment
-        as FSL appears to be breaking.
-        """
-        stdroi = pe.Node(StdRoi(), name='standard_space_roi')
-        stdroi.inputs.betpremask = True
-        stdroi.inputs.ignore_exception = ignoreexception
-        stripper = pe.Node(fsl.BET(), name='stripper')
-        stripper.inputs.frac = 0.25
-        stripper.inputs.ignore_exception = ignoreexception
-
-        #stripper.inputs.robust = True
-        #stripper.inputs.reduce_bias = True
-        #wf.connect(inputnode1, 'sbjid', datasource, 'sbjid')
         wf.connect(inputnode, 'imgid', datasource, 'imgid')
-        wf.connect(datasource, 'srcimg', stdroi, 'in_file')
-        wf.connect(stdroi, 'out_file', stripper, 'in_file')
+        if skullstripmethod == 'FSL':
+            '''
+            Estimate the tissue classes from the anatomical image. But use spm's segment
+            as FSL appears to be breaking.
+            '''
+            stdroi = pe.Node(StdRoi(), name='standard_space_roi')
+            stdroi.inputs.betpremask = True
+            stdroi.inputs.ignore_exception = ignoreexception
+            stripper = pe.Node(fsl.BET(), name='stripper')
+            stripper.inputs.frac = 0.25
+            stripper.inputs.ignore_exception = ignoreexception
+            wf.connect(datasource, 'srcimg', stdroi, 'in_file')
+            wf.connect(stdroi, 'out_file', stripper, 'in_file')
+        else:
+            stripper = pe.Node(interface=antsBrainExtraction(), name='stripper')
+            stripper.inputs.dimension = 3
+            #stripper.num_threads = 1
+            stripper.inputs.wholetemplate = normtemplatepath
+            assert templatebrainmask != None
+            stripper.inputs.brainmask = templatebrainmask
+            output_prefix = 'out'
+            wf.connect(datasource, 'srcimg', stripper, 'in_file')
+
 
         if normalise_method == 'FSL':
             normwarp = pe.Node(fsl.FLIRT(bins=640, cost_func='mutualinfo'), name='flirt')
@@ -107,7 +114,7 @@ class MrRegival (object):
             normwarp = pe.Node(antsIntroduction(), name='ants')
             normwarp.inputs.reference_image = normtemplatepath
             normwarp.inputs.max_iterations = [30,90,20]
-            normwarp.inputs.num_threads = 1 # This parameter will not take effects
+            #normwarp.inputs.num_threads = 1 # This parameter will not take effects
             normwarp.inputs.transformation_model = 'RI'
             normwarp.inputs.out_prefix = 'norm_'
             normwarp.inputs.ignore_exception = ignoreexception

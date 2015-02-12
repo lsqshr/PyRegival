@@ -85,6 +85,35 @@ class SynQuick(ANTSCommand):
         return outputs
 
 
+## Wrap antsBrainExtraction.sh 
+class antsBrainExtractionInputSpec(ANTSCommandInputSpec):
+    dimension = traits.Enum(3, 2, mandatory=True, argstr='-d %d', usedefault=False,
+                            desc='2 or 3 (for 2- or 3-dimensional image)')
+    num_threads = traits.Int(usedefault=True, argstr='-n %d',
+                             nohash=True, desc="Number of ITK threads to use")
+    in_file = File(exists=True, mandatory=True, argstr='-a %s',
+                                    desc='Structural image, typically T1.  If more than one anatomical image is specified, subsequently specified images are used during the segmentation process.  However, only the first image is used in the registration of priors. Our suggestion would be to specify the T1 as the first image.')
+    wholetemplate = File(exists=True, mandatory=True, argstr='-e %s',
+                                    desc='Anatomical template created using e.g. LPBA40 data set with buildtemplateparallel.sh in ANTs.')
+    brainmask = File(exists=True, mandatory=True, argstr='-m %s',
+                                    desc='Brain probability mask created using e.g. LPBA40 data set which have brain masks defined, and warped to anatomical template and averaged resulting in a probability image.')
+    output_prefix = traits.Str(usedefault=True, argstr='-o %s', mandatory=True, desc='Output directory + file prefix')
+    
+
+class antsBrainExtractionOutputSpec(TraitedSpec):
+    out_file = File(exists=True, desc='Skull-Stripped Image')
+
+
+class antsBrainExtraction(ANTSCommand):
+    _cmd = 'antsBrainExtraction.sh'
+    input_spec = antsBrainExtractionInputSpec
+    output_spec = antsBrainExtractionOutputSpec
+
+    def _list_outputs(self):
+        outputs = self._outputs().get()
+        outputs['out_file'] = os.path.join(os.getcwd(), self.inputs.output_prefix+'BrainExtractionBrain.nii.gz')
+        return outputs
+
 #------------------
 # Wrap 'ants/ComposeMultiTransform'
 class ComposeInputSpec(ANTSCommandInputSpec):
