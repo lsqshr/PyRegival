@@ -5,15 +5,17 @@ import csv, time
 from regival import *
 import time
 import itertools
+import numpy as np
 
 NTEST = 1
 interval = [12]
 dbpath = '/media/siqi/SiqiLarge/ADNI-For-Pred'
 ncore = 4
-K = 3
+K = 7
 TRIALSTART = 0
 TRIALEND = 60
-DECAY = 0.85
+DECAY = 0.9
+WEIGHTING = 'TRANS'
 
 c = AdniMrCollection(dbpath=dbpath, regendb=False)
 #c.randomselect(60, interval)
@@ -77,12 +79,15 @@ for i, p in enumerate(testset):
     #tset = [t[0] for t in targettemplates]
     targettemplateset = templateset
     imgw = imagedistance[i*len(templateset):(i+1)*len(templateset)]
-    imgpreditctionerr = reg.predict(p, templateset, imgw, decayratio=DECAY, real_followupid=followid, ncore=ncore, K=K, outprefix='img')
+    if WEIGHTING in ['IMAGE', 'ALL']:
+        imgpreditctionerr = reg.predict(p, templateset, imgw, decayratio=DECAY, real_followupid=followid, ncore=ncore, K=K, outprefix='img')
+        print 'image prediction err is', imgpreditctionerr
     trw = transdistance[i*len(templateset):(i+1)*len(templateset)]
-    transpredictionerr = reg.predict(p, templateset, trw, decayratio=DECAY, real_followupid=followid, ncore=ncore, K=K, outprefix='trans')
-    mergew = 0.5 * imgw + 0.5 * trw
-    mergepredictionerr = reg.predict(p, templateset, mergew, decayratio=DECAY, real_followupid=followid, ncore=ncore, K=K, outprefix='merge')
-    print 'image prediction err is', imgpreditctionerr
-    print 'trans prediction err is', transpredictionerr 
-    print 'merge prediction err is', mergepredictionerr 
+    if WEIGHTING in ['TRANS', 'ALL']:
+        transpredictionerr = reg.predict(p, templateset, trw, decayratio=DECAY, real_followupid=followid, ncore=ncore, K=K, outprefix='trans')
+        print 'trans prediction err is', transpredictionerr 
+    mergew = list(0.3 * np.array(imgw) + 0.7 * np.array(trw))
+    if WEIGHTING in ['MERGE', 'ALL']:
+        mergepredictionerr = reg.predict(p, templateset, mergew, decayratio=DECAY, real_followupid=followid, ncore=ncore, K=K, outprefix='merge')
+        print 'merge prediction err is', mergepredictionerr 
 ## Evaluation

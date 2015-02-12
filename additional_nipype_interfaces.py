@@ -39,12 +39,12 @@ class SynQuickInputSpec(ANTSCommandInputSpec):
     num_threads = traits.Int(usedefault=True, argstr='-n %d',
                              nohash=True, desc="Number of ITK threads to use")
     fixed_image = InputMultiPath(File(exists=True), mandatory=True, argstr='-f %s',
-                                    desc=('image to apply transformation to (generally a coregistered '
-                                            'functional)'))
+                                    desc='image to apply transformation to (generally a coregistered '
+                                            'functional)')
     moving_image = InputMultiPath(File(exists=True), argstr='-m %s',
                                     mandatory=True,
-                                    desc=('image to apply transformation to (generally a coregistered '
-                                            'functional)'))
+                                    desc='image to apply transformation to (generally a coregistered '
+                                            'functional)')
     output_prefix = traits.Str('out', usedefault=True,
                                             argstr='-o %s',
                                             mandatory=True, desc='')
@@ -89,8 +89,6 @@ class SynQuick(ANTSCommand):
 class antsBrainExtractionInputSpec(ANTSCommandInputSpec):
     dimension = traits.Enum(3, 2, mandatory=True, argstr='-d %d', usedefault=False,
                             desc='2 or 3 (for 2- or 3-dimensional image)')
-    num_threads = traits.Int(usedefault=True, argstr='-n %d',
-                             nohash=True, desc="Number of ITK threads to use")
     in_file = File(exists=True, mandatory=True, argstr='-a %s',
                                     desc='Structural image, typically T1.  If more than one anatomical image is specified, subsequently specified images are used during the segmentation process.  However, only the first image is used in the registration of priors. Our suggestion would be to specify the T1 as the first image.')
     wholetemplate = File(exists=True, mandatory=True, argstr='-e %s',
@@ -98,6 +96,7 @@ class antsBrainExtractionInputSpec(ANTSCommandInputSpec):
     brainmask = File(exists=True, mandatory=True, argstr='-m %s',
                                     desc='Brain probability mask created using e.g. LPBA40 data set which have brain masks defined, and warped to anatomical template and averaged resulting in a probability image.')
     output_prefix = traits.Str(usedefault=True, argstr='-o %s', mandatory=True, desc='Output directory + file prefix')
+    randomseeding = traits.Float(usedefault=True, argstr='-u %f', desc='Use random number generated from system clock in Atropos (default = 1)')
     
 
 class antsBrainExtractionOutputSpec(TraitedSpec):

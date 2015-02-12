@@ -49,13 +49,16 @@ class MrRegival (object):
         return self._ptemplate
 
 
-    def normalise(self, normtemplatepath='MNI152_T1_2mm_brain.nii.gz', templatebrainmask='MNI152_T1_2mm_brain_mask.nii.gz', 
+    def normalise(self, normtemplatepath='MNI152_T1_2mm_brain.nii.gz', templatehead='MNI152_T1_2mm.nii.gz', templatebrainmask='MNI152_T1_2mm_brain_mask.nii.gz', 
                   skullstripmethod='ANTS', normalise_method='FSL', lmodel=None, ignoreexception=False, ncore=2):
         ''' 
         Normalisation Pipeline with either FSL flirt or ANTS antsIntroduction
 
         '''
         normtemplatepath = abspath(normtemplatepath)
+        templatebrainmask = abspath(templatebrainmask)
+        templatehead = abspath(templatehead)
+
         if lmodel == None:
             lmodel = self._collection.getmrlist()
         
@@ -94,13 +97,11 @@ class MrRegival (object):
         else:
             stripper = pe.Node(interface=antsBrainExtraction(), name='stripper')
             stripper.inputs.dimension = 3
-            #stripper.num_threads = 1
-            stripper.inputs.wholetemplate = normtemplatepath
+            stripper.inputs.wholetemplate = templatehead
             assert templatebrainmask != None
             stripper.inputs.brainmask = templatebrainmask
-            output_prefix = 'out'
+            stripper.inputs.output_prefix = 'out'
             wf.connect(datasource, 'srcimg', stripper, 'in_file')
-
 
         if normalise_method == 'FSL':
             normwarp = pe.Node(fsl.FLIRT(bins=640, cost_func='mutualinfo'), name='flirt')
@@ -429,7 +430,7 @@ class MrRegival (object):
         resamplenode = pe.Node(interface=ApplyTransforms(), name='resample')  # refrence_image is set as the input_image itself now
         resamplenode.inputs.dimension = 3
         resamplenode.inputs.output_image = 'resampled.nii'
-        resamplenode.inputs.interpolation = 'Linear'
+        resamplenode.inputs.interpolation = 'WelchWindowedSinc'
         resamplenode.inputs.default_value = 0
         resamplenode.inputs.invert_transform_flags = [False]
         resamplenode.inputs.ignore_exception = True
