@@ -10,9 +10,10 @@ NTEST = 1
 interval = [12]
 dbpath = '/media/siqi/SiqiLarge/ADNI-For-Pred'
 ncore = 4
-K = 4
+K = 3
 TRIALSTART = 0
 TRIALEND = 60
+DECAY = 0.85
 
 c = AdniMrCollection(dbpath=dbpath, regendb=False)
 #c.randomselect(60, interval)
@@ -75,10 +76,13 @@ for i, p in enumerate(testset):
     #targettemplates = [t for t in dtemplateset if t[0][0] == p]
     #tset = [t[0] for t in targettemplates]
     targettemplateset = templateset
-    w = imagedistance[i*len(templateset):(i+1)*len(templateset)]
-    imgpreditctionerr = reg.predict(p, templateset, w, real_followupid=followid, ncore=ncore, K=K, outprefix='img')
-    w = transdistance[i*len(templateset):(i+1)*len(templateset)]
-    transpredictionerr = reg.predict(p, templateset, w, real_followupid=followid, ncore=ncore, K=K, outprefix='trans')
+    imgw = imagedistance[i*len(templateset):(i+1)*len(templateset)]
+    imgpreditctionerr = reg.predict(p, templateset, imgw, decayratio=DECAY, real_followupid=followid, ncore=ncore, K=K, outprefix='img')
+    trw = transdistance[i*len(templateset):(i+1)*len(templateset)]
+    transpredictionerr = reg.predict(p, templateset, trw, decayratio=DECAY, real_followupid=followid, ncore=ncore, K=K, outprefix='trans')
+    mergew = 0.5 * imgw + 0.5 * trw
+    mergepredictionerr = reg.predict(p, templateset, mergew, decayratio=DECAY, real_followupid=followid, ncore=ncore, K=K, outprefix='merge')
     print 'image prediction err is', imgpreditctionerr
     print 'trans prediction err is', transpredictionerr 
+    print 'merge prediction err is', mergepredictionerr 
 ## Evaluation

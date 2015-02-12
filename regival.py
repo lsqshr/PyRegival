@@ -295,7 +295,7 @@ class MrRegival (object):
                 return node.result.outputs.distance # The order is the same with self.diffs
 
 
-    def predict(self, targetpair, tpairs, w, K=4, t=0.5, real_followupid=None, ncore=2, outprefix=''):
+    def predict(self, targetpair, tpairs, w, K=4, t=0.5, decayratio=0.85, real_followupid=None, ncore=2, outprefix=''):
         '''
         targetpair : the pair to be simulated 
         tpairs : template pairs that were used for comparison 
@@ -326,7 +326,7 @@ class MrRegival (object):
         followuppairs = self._collection.find_followups(tpairs, interval=[targetpair.getinterval()]) 
 
         # Merge these templates by weighting
-        g = self.merge(followuppairs, ew, targetpair, ncore=ncore, outprefix=outprefix)
+        g = self.merge(followuppairs, ew, targetpair, decayratio=decayratio, ncore=ncore, outprefix=outprefix)
 
         distance = None
         if real_followupid is not None:
@@ -347,7 +347,7 @@ class MrRegival (object):
         return distance
 
 
-    def merge(self, pairs, w, targetpair, ncore=2, outprefix=''):
+    def merge(self, pairs, w, targetpair, decayratio=0.85, ncore=2, outprefix=''):
         inputnode = pe.MapNode(interface=niu.IdentityInterface(fields=['transa_imageid',
                                                                        'transb_imageid',
                                                                        'targetb_imageid',
@@ -363,7 +363,7 @@ class MrRegival (object):
         inputnode.inputs.targeta_imageid = targetpair.movingimage.getimgid()
         inputnode.inputs.targetb_imageid = targetpair.fixedimage.getimgid()
         inputnode.inputs.real_followupid = self._collection.find_followups([targetpair], [targetpair.getinterval()])[0].fixedimage.getimgid()
-        inputnode.inputs.decayratio = 0.7
+        inputnode.inputs.decayratio = decayratio
         print inputnode.inputs.real_followupid
         assert inputnode.inputs.real_followupid != None
         inputnode.inputs.w = w
