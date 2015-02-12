@@ -33,3 +33,10 @@ __pychache__/*
 *npy
 *swp
 crash*
+/expttemplate.pkl
+/predicted/predicted/resampled.nii
+/predicted/predicted/resampled_errmap.nii
+/transdiff/d3.js
+/transdiff/graph.json
+/transdiff/graph1.json
+/transdiff/index.html

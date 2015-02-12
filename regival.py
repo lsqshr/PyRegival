@@ -279,19 +279,12 @@ class MrRegival (object):
                         (errmapnode, outputnode, [('distance', 'distance')]),
                         ])
         else:
-            rigidnode = pe.MapNode(interface=Registration(), iterfield=['fixed_image', 'moving_image'])
-            rigidnode.inputs.trasforms = ['Rigid']
-            rigidnode.inputs.dimension = 3
-            rigidnode.inputs.metric = ['Mattes']*2
-            rigidnode.inputs.metric_weight = [1]*2 # Default (value ignored currently by ANTs)
-
             wf.connect([(inputnode, trans_datasource, [('sbj1_mov_imgid', 'sbj1_mov_imgid'),
                                                        ('sbj1_fix_imgid', 'sbj1_fix_imgid'),
                                                        ('sbj2_mov_imgid', 'sbj2_mov_imgid'),
                                                        ('sbj2_fix_imgid', 'sbj2_fix_imgid')]),
-                        (trans_datasource, rigidnode, [('sbj1_fix_img', 'sbj2_fix_img')]),
-                        (trans_datasource, errmapnode, [('sbj2_fix_img', 'in_ref')]),
-                        (rigidnode, errmapnode, [('warped_image', 'in_tst')]),
+                        (trans_datasource, errmapnode, [('sbj2_fix_img', 'in_ref'),
+                                                        ('sbj1_fix_img', 'in_tst')]),
                         (errmapnode, outputnode, [('distance', 'distance')]),
                         ])
 
@@ -360,7 +353,8 @@ class MrRegival (object):
                                                                        'targetb_imageid',
                                                                        'real_followupid',
                                                                        'w', 
-                                                                       'transid']),
+                                                                       'transid',
+                                                                       'decayratio']),
                                name='inputnode',
                                iterfield = ['transa_imageid', 'transb_imageid'])
 
@@ -369,6 +363,7 @@ class MrRegival (object):
         inputnode.inputs.targeta_imageid = targetpair.movingimage.getimgid()
         inputnode.inputs.targetb_imageid = targetpair.fixedimage.getimgid()
         inputnode.inputs.real_followupid = self._collection.find_followups([targetpair], [targetpair.getinterval()])[0].fixedimage.getimgid()
+        inputnode.inputs.decayratio = 0.7
         print inputnode.inputs.real_followupid
         assert inputnode.inputs.real_followupid != None
         inputnode.inputs.w = w
@@ -418,7 +413,7 @@ class MrRegival (object):
         composenode.inputs.ignore_exception = True
 
         # Weight Sum the transforms
-        weighted_sum_node = pe.Node(interface=Function(input_names=['transforms', 'weights'],
+        weighted_sum_node = pe.Node(interface=Function(input_names=['transforms', 'weights', 'decayratio'],
                                                        output_names=['out_file'],
                                                        function=trans_weighted_sum), 
                                     name='weighted_sum')
@@ -454,7 +449,8 @@ class MrRegival (object):
                                                   ]),
                     (inputnode, target_datasource, [('real_followupid', 'real_followupid'),
                                                     ('targetb_imageid', 'targetb_imageid')]),
-                    (inputnode, weighted_sum_node, [('w', 'weights')]),
+                    (inputnode, weighted_sum_node, [('w', 'weights'),
+                                                    ('decayratio', 'decayratio')]),
                     (pred_datasource, transnode, [('transa_image', 'moving_image'),
                                                    ('targetb_image', 'fixed_image')]),
                     (pred_datasource, composenode, [('trans', 'transform1'),
@@ -482,63 +478,7 @@ class MrRegival (object):
         print '\n'.join(self._log)
 
 
-    '''
-    # Deprecated: Since it is not wise to run everything altogether
-    def build(self, normtemplatepath='MNI152_T1_2mm_brain.nii.gz', 
-                       normalise_method='FSL',
-                       interval=[12]):
-
-        normtemplatepath = abspath(normtemplatepath)
-        # Cleanup the current results folder, otherwise the directory may mess up
-        # So if you want to keep the previous data, pls backup them
-        import shutil
-        if exists(join(self.dbpath, 'results')):
-            shutil.rmtree(join(self.dbpath, 'results'))
-
-        self._collection.filtermodels(interval) # Only keep the usable cases
-        if len(self._collection.getmrlist()) == 0:
-            raise Exception('No elligible MR found in: %s. Please double-check' % self.dbpath)
-        start = time.time()
-        self.normalise(normtemplatepath, normalise_method)
-        end = time.time()
-        logstr = 'The normalisation took %f seconds, %f seconds each of %d in total' % \
-              (end-start, (end-start)/len(self._collection.getmrlist()),  \
-              len(self._collection.getmrlist()))
-        print logstr
-        self._log.append(logstr)
-        start = time.time()
-        self.transform()
-        end = time.time()
-        logstr = 'The transformation took %f seconds, %f seconds each of %d in total' % \
-              (end-start, (end-start)/len(self._collection.find_transform_pairs()), \
-              len(self._collection.find_transform_pairs()))
-        self._log.append(logstr)
-        start = time.time()
-        g = self.transdiff() # transdiff does not consider the different intervals
-        diffs = list(itertools.product(self._collection.find_transform_pairs(), repeat=2)) # Since models were filtered before, the pairs here should be only the elligible ones
-        end = time.time()
-        logstr = 'The transdiff took %f seconds, %f seconds each of %d in total' % \
-              (end-start, (end-start)/len(diffs), len(diffs))
-        self._log.append(logstr)
-
-        for node in g.nodes():
-            if node.name == 'errmap':
-                errmap = node.result.outputs.distance # The order is the same with self.diffs
-
-        self._ptemplate = {}
-        self._ptemplate['transpairs'] = self._collection.find_transform_pairs()
-        diffs = [((d[0].fixedimage.getimgid(), d[0].movingimage.getimgid()),\
-                 (d[1].fixedimage.getimgid(), d[1].movingimage.getimgid())) for d in diffs] # Use the imgid pairs instead of the pair model tuples for keys
-        self._ptemplate['distance'] = dict(zip(diffs, errmap)) 
-        self._ptemplate['lmodel'] = self._collection.getmrlist() 
-
-        with open(join(self.dbpath, 'ptemplate.pkl'), 'wb') as outfile:
-            pickle.dump(self._ptemplate, outfile)
-
-        return self._ptemplate
-        '''
-
-def trans_weighted_sum(transforms, weights):
+def trans_weighted_sum(transforms, weights, decayratio):
     import nibabel as nib
     import numpy as np
     import os
@@ -555,7 +495,7 @@ def trans_weighted_sum(transforms, weights):
         else:
             merged +=wdata
 
-    merged = merged / np.sum(weights) # Normalise
+    merged = merged * decayratio/ np.sum(weights) # Normalise
     newtrans = nib.Nifti1Image(merged, affine)
     # Copy header, otherwise the transform will be shifted
     # Interstingly that nibabel won't allow you to assign the header directly

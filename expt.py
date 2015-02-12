@@ -82,4 +82,3 @@ for i, p in enumerate(testset):
     print 'image prediction err is', imgpreditctionerr
     print 'trans prediction err is', transpredictionerr 
 ## Evaluation
-
