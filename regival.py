@@ -101,6 +101,7 @@ class MrRegival (object):
             assert templatebrainmask != None
             stripper.inputs.brainmask = templatebrainmask
             stripper.inputs.output_prefix = 'out'
+            stripper.inputs.randomseeding = True
             wf.connect(datasource, 'srcimg', stripper, 'in_file')
 
         if normalise_method == 'FSL':
@@ -129,7 +130,7 @@ class MrRegival (object):
 
         # Run workflow with all cpus available
         #wf.run(plugin='MultiProc', plugin_args={'n_procs' : ncore})
-        wf.run()
+        wf.run(plugin='MultiProc', plugin_args={'n_procs' : ncore})
 
 
     def transform(self, transpairs=None, ignoreexception=False, ncore=2):
