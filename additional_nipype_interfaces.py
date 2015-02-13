@@ -96,7 +96,7 @@ class antsBrainExtractionInputSpec(ANTSCommandInputSpec):
     brainmask = File(exists=True, mandatory=True, argstr='-m %s',
                                     desc='Brain probability mask created using e.g. LPBA40 data set which have brain masks defined, and warped to anatomical template and averaged resulting in a probability image.')
     output_prefix = traits.Str(usedefault=True, argstr='-o %s', mandatory=True, desc='Output directory + file prefix')
-    randomseeding = traits.Float(usedefault=True, argstr='-u %f', desc='Use random number generated from system clock in Atropos (default = 1)')
+    randomseeding = traits.Bool(usedefault=True, argstr='-u', desc='Use random number generated from system clock in Atropos (default = 1)')
     
 
 class antsBrainExtractionOutputSpec(TraitedSpec):

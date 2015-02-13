@@ -128,7 +128,8 @@ class MrRegival (object):
         wf.connect(normwarp, outfield, datasink, 'preprocessed')
 
         # Run workflow with all cpus available
-        wf.run(plugin='MultiProc', plugin_args={'n_procs' : ncore})
+        #wf.run(plugin='MultiProc', plugin_args={'n_procs' : ncore})
+        wf.run()
 
 
     def transform(self, transpairs=None, ignoreexception=False, ncore=2):
@@ -303,14 +304,13 @@ class MrRegival (object):
                 return node.result.outputs.distance # The order is the same with self.diffs
 
 
-    def predict(self, targetpair, tpairs, w, K=4, t=0.5, decayratio=0.85, real_followupid=None, ncore=2, outprefix=''):
+    def predict(self, targetpair, tpairs, w, K=4, t=0.5, decayratio=0.85, ncore=2, outprefix=''):
         '''
         targetpair : the pair to be simulated 
         tpairs : template pairs that were used for comparison 
         w : weights of the template; this weights can be totally coustmomised
         N : Int the number of neighbours to merge 
         t : Gaussian kernel density
-        real_followupid: the followup image id for evaluation
         ncore : n cpu cores to run the workflow
         '''
         start = time.time()
@@ -336,6 +336,7 @@ class MrRegival (object):
         # Merge these templates by weighting
         g = self.merge(followuppairs, ew, targetpair, decayratio=decayratio, ncore=ncore, outprefix=outprefix)
 
+        '''
         distance = None
         if real_followupid is not None:
             for node in g.nodes():
@@ -345,6 +346,7 @@ class MrRegival (object):
             print 'The resampling distance is: ', distance 
         else:
             'The real followup id is not provided, no comparison was possible...'
+        '''
 
         end = time.time()
         logstr = 'The prediction of 1 target took %f seconds, %f in %d elligible pairs' % \
@@ -352,7 +354,7 @@ class MrRegival (object):
         print logstr
         self._log.append(logstr)
 
-        return distance
+        #return distance
 
 
     def merge(self, pairs, w, targetpair, decayratio=0.85, ncore=2, outprefix=''):
@@ -448,7 +450,7 @@ class MrRegival (object):
         datasink.inputs.base_directory = os.path.abspath(join(self.dbpath, 'results', outprefix + 'predicted'))
         datasink.inputs.parameterization = True
 
-        outputnode = pe.Node(interface=niu.IdentityInterface(fields=['distance']), name='evaldistance')
+        #outputnode = pe.Node(interface=niu.IdentityInterface(fields=['distance']), name='evaldistance')
 
         wf = pe.Workflow(name='prediction')
         wf.connect([(inputnode, pred_datasource, [('transa_imageid', 'transa_imageid'), 
@@ -472,15 +474,88 @@ class MrRegival (object):
                     (inputnode, datasink, [('transid', 'container')]),
                     (weighted_sum_node, datasink, [('out_file', 'predicted.@predicted_trans')])
                    ])
+        ''' # The evaluation has been moved to a new pipeline
         # Grab the follow up image
         wf.connect(target_datasource, 'real_followupimage', errmapnode, 'in_ref')
         wf.connect(resamplenode, 'output_image', errmapnode, 'in_tst')
         wf.connect(errmapnode, 'distance', outputnode, 'distance')
         wf.connect(errmapnode, 'out_map', datasink, 'predicted.@errmap')
+        '''
 
         g = wf.run(plugin='MultiProc', plugin_args={'n_procs' : ncore})
         return g
 
+
+    def evaluate(self, targetpair, ncore=2, outprefix=''):
+        '''
+        Evaluate the predicted images by outputing the 2 distances: predicted-original Image B & predicted-registered Image A
+        '''
+
+        inputnode = pe.MapNode(interface=niu.IdentityInterface(fields=['targeta_imageid',
+                                                                       'targetb_imageid',
+                                                                       'real_followupid'
+                                                                       ]),
+                           name='inputnode',
+                           iterfield = ['transa_imageid', 'transb_imageid'])
+        inputnode.inputs.targeta_imageid = targetpair.movingimage.getimgid()
+        inputnode.inputs.targetb_imageid = targetpair.fixedimage.getimgid()
+        inputnode.inputs.real_followupid = self._collection.find_followups([targetpair],
+                                                [targetpair.getinterval()])[0].fixedimage.getimgid()
+        # Predicted Datasource: Find the predicted resampled image
+        eval_datasource = pe.Node(interface=nio.DataGrabber(
+                                             infields=['targeta_imageid', 'targetb_imageid', 'real_followupid'],
+                                             outfields=['predimg', 'original_followup', 'registered_followup']),
+                                      name='eval_datasource')
+        eval_datasource.inputs.base_directory = os.path.abspath(join(self.dbpath, 'results'))
+        eval_datasource.inputs.template = '*'
+        eval_datasource.inputs.field_template = dict(predimg=join(outprefix+'predicted', '%s-%s', 'predicted', 'resampled.nii'),
+                                                     original_followup=join('preprocessed', '_imgid_%s', 'norm_deformed.nii.gz'),
+                                                     registered_followup=join('transformed', '%s-%s', 'SyNQuick', 'transid*', 'outWarped.nii.gz')
+                                                     )
+        eval_datasource.inputs.template_args = dict(predimg=[['targeta_imageid', 'targetb_imageid']],
+                                                    original_followup=[['real_followupid']],
+                                                    registered_followup=[['targetb_imageid', 'real_followupid']])
+        eval_datasource.inputs.sort_filelist = True
+
+        # Original Errormap to measure the distances between the predicted and the original image B
+        origerrnode = pe.Node(interface=ErrorMap(), name='origerrnode')
+
+        # Register Errormap to measure the distances between the predicted and the registered image A
+        regerrnode = pe.Node(interface=ErrorMap(), name='regerrnode')
+
+        # The error between the registered image A and Image B
+        rawerrnode = pe.Node(interface=ErrorMap(), name='rawerrnode')
+
+        outputnode = pe.Node(interface=niu.IdentityInterface(fields=['original_distance', 'registered_distance', 'raw_distance']), name='evaloutput')
+
+
+        wf = pe.Workflow(name='evaluation')
+        wf.connect([(inputnode, eval_datasource, [('targeta_imageid', 'targeta_imageid'),
+                                                  ('targetb_imageid', 'targetb_imageid'),
+                                                  ('real_followupid', 'real_followupid')]),
+                    (eval_datasource, origerrnode, [('predimg','in_tst'),
+                                                    ('original_followup', 'in_ref')]),
+                    (eval_datasource, regerrnode, [('predimg', 'in_tst'),
+                                                   ('registered_followup', 'in_ref')]),
+                    (eval_datasource, rawerrnode, [('registered_followup', 'in_tst'),
+                                                   ('original_followup', 'in_ref')]),
+                    (origerrnode, outputnode, [('distance', 'original_distance')]),
+                    (regerrnode, outputnode, [('distance', 'registered_distance')]),
+                    (rawerrnode, outputnode, [('distance', 'raw_distance')])
+                    ])
+
+        g = wf.run()
+
+        err = [-1, -1, -1]
+        for node in g.nodes():
+            if node.name == 'origerrnode':
+                err[0] = node.result.outputs.distance
+            if node.name == 'regerrnode':
+                err[1] = node.result.outputs.distance
+            if node.name == 'rawerrnode':
+                err[2] = node.result.outputs.distance
+
+        return err 
 
     def printlog(self):
         print '\n'.join(self._log)
