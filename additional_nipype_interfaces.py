@@ -146,95 +146,27 @@ class ComposeMultiTransform(ANTSCommand):
         return outputs
 
 
-class AvgErrorMapOutputSpec(ErrorMapOutputSpec):
-    '''
-    Added a new average error field 
-    '''
-    avgerr = traits.Float(desc="Average distance between volume 1 and 2 of all voxels")
-    
+class CreateJacobianDeterminantImageInputSpec(ANTSCommandInputSpec):
+    dimension = traits.Enum(3, 2, argstr='%d', 
+                                usedefault=True,
+                                position=0, desc='image dimension (2 or 3)')
+    warp_field = File(exists=True, argstr='%s', mandatory=True, position=1,
+                                    desc='The input deformation field for Jacobian calculation')
+    output_image = traits.Str(usedefault=True, argstr='%s', position=2, mandatory=True, desc='The name of the output image.')
+    dolog = traits.Enum(0, 1, position=3, argstr='%d', usedefault=True, desc='log transform the jacobian determinant')
+    dogeometric = traits.Enum(0, 1, argstr='%d', position=4, usedefault=True, desc='geometric transform the jacobian determinant')
 
-class AvgErrorMap(ErrorMap):
-    '''
-    A simple wrap of nipype.algorithms.metrics.ErrorMap
-    to also output an average sum distance (a float) besides the errormap volume
-    '''
 
-    output_spec = AvgErrorMapOutputSpec
+class CreateJacobianDeterminantImageOutputSpec(TraitedSpec):
+    out_file = File(exists=True, desc='The output jacobian determinant image volume')
 
-    def _run_interface(self, runtime):
-        # Get two numpy data matrices
-        nii_ref = nb.load(self.inputs.in_ref)
-        ref_data = np.squeeze(nii_ref.get_data())
-        tst_data = np.squeeze(nb.load(self.inputs.in_tst).get_data())
-        assert(ref_data.ndim == tst_data.ndim)
 
-        # Load mask
-        comps = 1
-        mapshape = ref_data.shape
-
-        if (ref_data.ndim == 4):
-            comps = ref_data.shape[-1]
-            mapshape = ref_data.shape[:-1]
-
-        if isdefined(self.inputs.mask):
-            msk = nb.load( self.inputs.mask ).get_data()
-            if (mapshape != msk.shape):
-                raise RuntimeError("Mask should match volume shape, \
-                                   mask is %s and volumes are %s" %
-                                   (list(msk.shape), list(mapshape)))
-        else:
-            msk = np.ones(shape=mapshape)
-
-        # Vectorise both volumes and make the pixel differennce
-        mskvector = msk.reshape(-1)
-        msk_idxs = np.where(mskvector==1)
-        refvector = ref_data.reshape(-1,comps)[msk_idxs].astype(np.float32)
-        tstvector = tst_data.reshape(-1,comps)[msk_idxs].astype(np.float32)
-        diffvector = (refvector-tstvector)
-
-        # scale the diffrernce
-        if self.inputs.metric == 'sqeuclidean':
-            errvector = diffvector**2
-        elif self.inputs.metric == 'euclidean':
-            X = np.hstack((refvector, tstvector))
-            errvector = np.linalg.norm(X, axis=1)
-
-        if (comps > 1):
-            errvector = np.sum(errvector, axis=1)
-        else:
-            errvector = np.squeeze(errvector)
-
-        errvectorexp = np.zeros_like(mskvector)
-        errvectorexp[msk_idxs] = errvector
-
-        # Get averaged sum error
-        self._avgerr = np.average(errvectorexp)
-
-        errmap = errvectorexp.reshape(mapshape)
-
-        hdr = nii_ref.get_header().copy()
-        hdr.set_data_dtype(np.float32)
-        hdr['data_type'] = 16
-        hdr.set_data_shape(mapshape)
-
-        if not isdefined(self.inputs.out_map):
-            fname,ext = op.splitext(op.basename(self.inputs.in_tst))
-            if ext=='.gz':
-                fname,ext2 = op.splitext(fname)
-                ext = ext2 + ext
-            self._out_file = op.abspath(fname + "_errmap" + ext)
-        else:
-            self._out_file = self.inputs.out_map
-
-        nb.Nifti1Image(errmap.astype(np.float32), nii_ref.get_affine(),
-                       hdr).to_filename(self._out_file)
-
-        return runtime 
-
+class CreateJacobianDeterminantImage(ANTSCommand):
+    _cmd = 'CreateJacobianDeterminantImage'
+    input_spec = CreateJacobianDeterminantImageInputSpec
+    output_spec = CreateJacobianDeterminantImageOutputSpec
 
     def _list_outputs(self):
-        outputs = super(AvgErrorMap, self)._list_outputs()
-        outputs['avgerr'] = self._avgerr
+        outputs = self._outputs().get()
+        outputs['out_file'] = os.path.join(os.getcwd(), self.inputs.output_image)
         return outputs
-
-
