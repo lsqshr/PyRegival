@@ -272,7 +272,7 @@ class MrRegival (object):
         errmapnode = pe.MapNode(interface=ErrorMap(), name='errmap', 
                                 iterfield=['in_ref', 'in_tst'])
         errmapnode.inputs.ignore_exception = ignoreexception
-        #errmapnode.inputs.mask = dilbrainmask
+        errmapnode.inputs.mask = dilbrainmask
 
         outputnode = pe.Node(interface=niu.IdentityInterface(fields=['distance']),
                                 name='transdiff_outputnode')
@@ -290,12 +290,12 @@ class MrRegival (object):
 
         # build the workflow
         wf = pe.Workflow(name="transdiff")
-        wf.connect([(inputnode, trans_datasource, [('sbj1_mov_imgid', 'sbj1_mov_imgid'),
+        if option == 'trans':
+            wf.connect([(inputnode, trans_datasource, [('sbj1_mov_imgid', 'sbj1_mov_imgid'),
                                                    ('sbj1_fix_imgid', 'sbj1_fix_imgid'),
                                                    ('sbj2_mov_imgid', 'sbj2_mov_imgid'),
-                                                   ('sbj2_fix_imgid', 'sbj2_fix_imgid')]),])
-        if option == 'trans':
-            wf.connect([(trans_datasource, transnode, [('sbj2_mov_img', 'fixed_image'),
+                                                   ('sbj2_fix_imgid', 'sbj2_fix_imgid')]), 
+                        (trans_datasource, transnode, [('sbj2_mov_img', 'fixed_image'),
                                                        ('sbj1_mov_img', 'moving_image')]),
                         (trans_datasource, composenode, [('transform_2ab', 'transform1'),
                                                          ('sbj1_fix_img', 'reference')]),
@@ -308,65 +308,37 @@ class MrRegival (object):
                         (errmapnode, outputnode, [('distance', 'distance')]),
                         ])
         elif option == 'image':
-            wf.connect([(trans_datasource, errmapnode, [('sbj2_fix_img', 'in_ref'),
+            wf.connect([(inputnode, trans_datasource, [('sbj1_mov_imgid', 'sbj1_mov_imgid'),
+                                                   ('sbj1_fix_imgid', 'sbj1_fix_imgid'),
+                                                   ('sbj2_mov_imgid', 'sbj2_mov_imgid'),
+                                                   ('sbj2_fix_imgid', 'sbj2_fix_imgid')]),
+                        (trans_datasource, errmapnode, [('sbj2_fix_img', 'in_ref'),
                                                         ('sbj1_fix_img', 'in_tst')]),
                         (errmapnode, outputnode, [('distance', 'distance')]),
                         ])
         elif option == 'longitudinal_jacobian':
-            wf.connect([(trans_datasource, jdnode1, [('transform_1ab', 'warp_field')]),
+            wf.connect([(inputnode, trans_datasource, [('sbj1_mov_imgid', 'sbj1_mov_imgid'),
+                                                   ('sbj1_fix_imgid', 'sbj1_fix_imgid'),
+                                                   ('sbj2_mov_imgid', 'sbj2_mov_imgid'),
+                                                   ('sbj2_fix_imgid', 'sbj2_fix_imgid')]),
+                        (trans_datasource, jdnode1, [('transform_1ab', 'warp_field')]),
                         (trans_datasource, jdnode2, [('transform_2ab', 'warp_field')]),
                         (jdnode1, errmapnode, [('out_file', 'in_ref')]), 
                         (jdnode2, errmapnode, [('out_file', 'in_tst')]),
                         (errmapnode, outputnode, [('distance', 'distance')]),
                         ])
         elif option == 'crosssectional_jacobian':
-            # A separate workflow to collect the to-template jacobian determinant for each fixed image in diffpairs
-            pairs = [d[0] for d in diffpairs] + [d[1] for d in diffpairs]
-            models = set([p.fixedimage for p in pairs])
-
-            templatejacdetinputnode = pe.MapNode(interface=niu.IdentityInterface(fields=['imgid']),
-                                                               name='templatejacdetinputnode', iterfield = ['imgid'])
-            templatejacdetinputnode.inputs.imgid = [m.getimgid() for m in models]
-
-            templatejacdetdatasource = pe.MapNode(interface=nio.DataGrabber(), name='templatejacdetdatasource', iterfield=['imgid'])
-            templatejacdetdatasource.inputs.base_directory = trans_datasource.inputs.base_directory = os.path.abspath(join(self.dbpath, 'results'))
-            templatejacdetdatasource.inputs.template = 'preprocessed/_imgid_%s/norm_deformed.nii.gz'
-            templatejacdetdatasource.inputs.template_args = dict(deformedimage=[['imgid']],)
-            templatejacdetdatasource.inputs.sort_filelist = True
-
-            templatetransnode = pe.MapNode(interface=SynQuick(), name='templatetransnode1', iterfield=['fixed_image'])
-            templatetransnode.inputs.output_prefix = 'out'
-            templatetransnode.inputs.dimension = 3 
-            templatetransnode.inputs.ignore_exception = ignoreexception
-            templatetransnode.inputs.moving_image = normtemplatepath
-
-            templatejacdetsinker = pe.MapNode(nio.DataSink(infields=['container',
-                                                                     'jacdet']), 
-                                              iterfield=['container',
-                                                         'jacdet'], name='templatejacdetsinker')
-            templatejacdetsinker.inputs.base_directory = os.path.abspath(join(self.dbpath, 'results', 'templatejacdet'))
-            #templatejacdetsinker.inputs.substitutions = [('_transnode', 'imgid')]
-            templatejacdetsinker.inputs.parameterization = True 
-            
-            jacdetwf = pe.Workflow(name="jacdet")
-            jacdetwf.connect([(templatejacdetinputnode, templatejacdetdatasource, [('imgid', 'imgid'),]),
-                              (templatejacdetdatasource, templatetransnode, [('deformedimage', 'fixed_image')]),
-                              (tremplatetransnode, jdnode1, [('warp_field', 'warp_field')]),
-                              (jdnode1, templatejacdetsinker, [('warp_field', 'jacdet')]),
-                              (templatejacdetinputnode, templatejacdetsinker, [('imgid', 'container')]),
-                            ])
-
-            jacdetwf.run(plugin='MultiProc', plugin_args={'n_procs': ncore})
             # The original transdiff workflow
-            jacdetpairsource = pe.MapNode(interface=nio.DataGrabber(), name='jacdetpairsource', iterfield=['imgid1', 'imgid2'])
+            jacdetpairsource = pe.MapNode(interface=nio.DataGrabber(infields=['imgid1', 'imgid2'], outfields=['jacdet1', 'jacdet2']),
+                                                                    name='jacdetpairsource', iterfield=['imgid1', 'imgid2'])
             jacdetpairsource.inputs.base_directory = trans_datasource.inputs.base_directory = os.path.abspath(join(self.dbpath, 'results'))
-            jacdetpairsource.inputs.template = 'templatejacdet/%s/jacdet.nii.gz'
+            jacdetpairsource.inputs.template = 'templatejacdet/%s/jacdet/_JacDet*/jacdet.nii.gz'
             jacdetpairsource.inputs.template_args = dict(jacdet1=[['imgid1']],
                                                          jacdet2=[['imgid2']])
             jacdetpairsource.inputs.sort_filelist = True
 
-            wf.connect([(trans_datasource, jacdetpairsource, [('sbj1_fix_img', 'imgid1')]),
-                        (trans_datasource, jacdetpairsource, [('sbj2_fix_img', 'imgid2')]),
+            wf.connect([(inputnode, jacdetpairsource, [('sbj1_fix_imgid', 'imgid1')]),
+                        (inputnode, jacdetpairsource, [('sbj2_fix_imgid', 'imgid2')]),
                         (jacdetpairsource, errmapnode, [('jacdet1', 'in_ref')]), 
                         (jacdetpairsource, errmapnode, [('jacdet2', 'in_tst')]),
                         (errmapnode, outputnode, [('distance', 'distance')]),
@@ -380,6 +352,56 @@ class MrRegival (object):
         for node in g.nodes():
             if node.name == 'errmap':
                 return node.result.outputs.distance # The order is the same with self.diffs
+
+    def cross_jacdet(self, lmodel=None, ignoreexception=False, ncore=2, normtemplatepath='MNI152_T1_2mm_brain.nii.gz'):
+        normtemplatepath = abspath(normtemplatepath)
+
+        if lmodel == None:
+            epairs = self._collection.filter_elligible_pairs()
+            lmodel = [m.fixedimage for m in epairs]
+
+        # A separate workflow to collect the to-template jacobian determinant for each fixed image in diffpairs
+        templatejacdetinputnode = pe.MapNode(interface=niu.IdentityInterface(fields=['imgid']),
+                                                           name='templatejacdetinputnode', iterfield = ['imgid'])
+        templatejacdetinputnode.inputs.imgid = [ m.getimgid() for m in lmodel ]
+
+        templatejacdetdatasource = pe.MapNode(interface=nio.DataGrabber(infields=['imgid'], outfields=['deformedimage']), 
+                                              name='templatejacdetdatasource', 
+                                              iterfield=['imgid',])
+        templatejacdetdatasource.inputs.base_directory = os.path.abspath(join(self.dbpath, 'results'))
+        templatejacdetdatasource.inputs.template = 'preprocessed/_imgid_%s/norm_deformed.nii.gz'
+        #templatejacdetdatasource.inputs.template_args = ['imgid'] 
+        templatejacdetdatasource.inputs.template_args['deformedimage'] = [['imgid']]
+        templatejacdetdatasource.inputs.sort_filelist = True
+
+        templatetransnode = pe.MapNode(interface=SynQuick(), name='templatetransnode1', iterfield=['fixed_image'])
+        templatetransnode.inputs.output_prefix = 'out'
+        templatetransnode.inputs.dimension = 3 
+        templatetransnode.inputs.ignore_exception = ignoreexception
+        templatetransnode.inputs.moving_image = normtemplatepath
+
+        jdnode = pe.MapNode(interface=CreateJacobianDeterminantImage(), name='JacDet1', iterfield=['warp_field'])
+        jdnode.inputs.dimension = 3
+        jdnode.inputs.output_image = 'jacdet.nii.gz'
+        jdnode.inputs.dolog = 1
+
+        templatejacdetsinker = pe.MapNode(nio.DataSink(infields=['container',
+                                                                 'jacdet']), 
+                                          iterfield=['container',
+                                                     'jacdet'], name='templatejacdetsinker')
+        templatejacdetsinker.inputs.base_directory = os.path.abspath(join(self.dbpath, 'results', 'templatejacdet'))
+        #templatejacdetsinker.inputs.substitutions = [('_transnode', 'imgid')]
+        templatejacdetsinker.inputs.parameterization = True 
+        
+        jacdetwf = pe.Workflow(name="jacdet")
+        jacdetwf.connect([(templatejacdetinputnode, templatejacdetdatasource, [('imgid', 'imgid'),]),
+                          (templatejacdetdatasource, templatetransnode, [('deformedimage', 'fixed_image')]),
+                          (templatetransnode, jdnode, [('warp_field', 'warp_field')]),
+                          (jdnode, templatejacdetsinker, [('out_file', 'jacdet')]),
+                          (templatejacdetinputnode, templatejacdetsinker, [('imgid', 'container')]),
+                        ])
+
+        jacdetwf.run(plugin='MultiProc', plugin_args={'n_procs': ncore})
 
 
     def predict(self, targetpair, tpairs, w, K=4, t=0.5, decayratio=0.85, ncore=2, outprefix=''):

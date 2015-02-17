@@ -31,9 +31,10 @@ if exists(join(self.dbpath, 'results', 'transforms')):
             shutil.rmtree(join(self.dbpath, 'results'))
 '''
 #reg.transform(ignoreexception=True, ncore=ncore)
+#reg.cross_jacdet(ncore=ncore, ignoreexception=False)
+
 
 epairs = reg.getcollection().filter_elligible_pairs(interval=interval)
-
 # Collect Leave one out diff
 for i, testpair in enumerate(epairs):
     if i < TRIALSTART:
@@ -54,15 +55,15 @@ for i, testpair in enumerate(epairs):
     diffs = list(itertools.product(testset, templateset)) 
     #transdistance = reg.transdiff(diffs, option='trans', ignoreexception=False, ncore=ncore)
     #imagedistance = reg.transdiff(diffs, option='image', ignoreexception=False, ncore=ncore)
-    longjdistance = reg.transdiff(diffs, option='longitudinal_jacobian', ignoreexception=False, ncore=ncore)
-    #crossjdistance = reg.transdiff(diffs, option='crosssectional_jacobian', ignoreexception=False, ncore=ncore)
+    #longjdistance = reg.transdiff(diffs, option='longitudinal_jacobian', ignoreexception=False, ncore=ncore)
+    crossjdistance = reg.transdiff(diffs, option='crosssectional_jacobian', ignoreexception=False, ncore=ncore)
 
     session[i]['testset'] = testset
     session[i]['templateset'] = templateset
     #session[i]['transdistance'] = transdistance
     #session[i]['imagedistance'] = imagedistance
-    session[i]['longjdistance'] = longjdistance
-    #session[i]['crossjdistance'] = crossjdistance
+    #session[i]['longjdistance'] = longjdistance
+    session[i]['crossjdistance'] = crossjdistance
 
     with open(join(dbpath, 'expttemplate.pkl'), 'wb') as outfile:
         pickle.dump(session, outfile)
