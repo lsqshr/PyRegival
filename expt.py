@@ -12,7 +12,7 @@ import pickle
 NTEST = 1
 interval = [12]
 dbpath = '/home/siqi/ADNI-For-Pred'
-ncore = 4 
+ncore = 60 
 DECAY = 0.9
 WEIGHTING = 'IMAGE'
 CROSSW = 0.7
@@ -38,6 +38,7 @@ else:
     TRIALEND = int(sys.argv[2])
 
 
+'''
 session = [0] * len(epairs)
 # Create Leave-one-out Sets
 for i, testpair in enumerate(epairs):
@@ -48,6 +49,7 @@ for i, testpair in enumerate(epairs):
     session[i]['templateset'] = templateset
 with open(join(dbpath, 'expttemplate.pkl'), 'wb') as outfile:
     pickle.dump(session, outfile)
+'''
 
 with open(join(dbpath, 'expttemplate.pkl'), 'rb') as infile:
     session = pickle.load(infile)
@@ -60,8 +62,9 @@ for i, testpair in enumerate(session):
         break;
 
     # session will be save after every leave-one-out trial
-    testset = session[i]['testset']
-    templateset = session[i]['templateset']
+    tempsession = session[i]
+    testset = tempsession['testset']
+    templateset = tempsession['templateset']
     # Note: itertools will return [(test1, template1), (test1, template2), (test1, template3) ... (testn, templaten)]
     diffs = list(itertools.product(testset, templateset)) 
     #transdistance = reg.transdiff(diffs, option='trans', ignoreexception=False, ncore=ncore)
@@ -69,12 +72,29 @@ for i, testpair in enumerate(session):
     #longjdistance = reg.transdiff(diffs, option='longitudinal_jacobian', ignoreexception=False, ncore=ncore)
     #crossjdistance = reg.transdiff(diffs, option='crosssectional_jacobian', ignoreexception=False, ncore=ncore)
  
-    session[i]['imagedistance'] = imagedistance
-    #session[i]['longjdistance'] = longjdistance
-    #session[i]['crossjdistance'] = crossjdistance
+    tempsession['imagedistance'] = imagedistance
+    #tempsession[i]['longjdistance'] = longjdistance
+    #tempsession[i]['crossjdistance'] = crossjdistance
  
-    with open(join(dbpath, 'expttemplate.pkl'), 'wb') as outfile:
-        pickle.dump(session, outfile)
+    with open(join(dbpath, 'expttemplate%d.pkl'%i), 'wb') as outfile:
+        pickle.dump(tempsession, outfile)
+
+'''
+# Collect all sessions
+for i in range(len(session)):
+    print 'collecting results'
+    if i < TRIALSTART:
+        continue
+    if i > TRIALEND:
+        break;
+    with open(join(dbpath, 'expttemplate%d.pkl'%i), 'rb') as infile:
+        tempsession = pickle.load(infile)
+    for key in tempsession:
+        session[i][key] = tempsession[key]
+with open(join(dbpath, 'expttemplate.pkl'), 'wb') as outfile:
+    pickle.dump(session, outfile)
+'''
+    
 
 '''
 with open(join(dbpath, 'expttemplate.pkl'), 'rb') as infile:
@@ -117,6 +137,7 @@ for i, testpair in enumerate(session):
             imgw = np.array(imgw)
             mergeimgw = 0.7 * mergew / min(mergew) + 0.3 * np.array(imgw/min(imgw))
             mergepredictionerr = reg.predict(p, templateset, mergeimgw, decayratio=DECAY, ncore=ncore, K=K, outprefix='mergeimage')
+'''
 '''
 ## Evaluation
 ldir = os.listdir(join(dbpath, 'results', 'imagepredicted'))
@@ -167,7 +188,6 @@ err['mergeimageerr'] = mergeimageerr
 
 with open('predicterr.pkl', 'wb') as f:
     pickle.dump(err, f)
-'''
 
 '''
 ## Plot Err
