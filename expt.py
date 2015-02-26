@@ -37,24 +37,31 @@ else:
     TRIALSTART = int(sys.argv[1])
     TRIALEND = int(sys.argv[2])
 
-'''
- 
-# Collect Leave one out diff
+
+session = [0] * len(epairs)
+# Create Leave-one-out Sets
 for i, testpair in enumerate(epairs):
+    session[i] = {}
+    testset = [testpair]
+    templateset = epairs[:i] + epairs[i+1:]
+    session[i]['testset'] = testset
+    session[i]['templateset'] = templateset
+with open(join(dbpath, 'expttemplate.pkl'), 'wb') as outfile:
+    pickle.dump(session, outfile)
+
+with open(join(dbpath, 'expttemplate.pkl'), 'rb') as infile:
+    session = pickle.load(infile)
+
+# Collect Leave one out diff
+for i, testpair in enumerate(session):
     if i < TRIALSTART:
         continue
     if i > TRIALEND:
         break;
+
     # session will be save after every leave-one-out trial
-    if exists(join(dbpath, 'expttemplate.pkl')):
-        with open(join(dbpath, 'expttemplate.pkl'), 'rb') as infile:
-            session = pickle.load(infile)
-    else:
-        session = [0]*len(epairs)
-    if session[i] == 0:
-        session[i] = {}
-    testset = [testpair]
-    templateset = epairs[:i] + epairs[i+1:]
+    testset = session[i]['testset']
+    templateset = session[i]['templateset']
     # Note: itertools will return [(test1, template1), (test1, template2), (test1, template3) ... (testn, templaten)]
     diffs = list(itertools.product(testset, templateset)) 
     #transdistance = reg.transdiff(diffs, option='trans', ignoreexception=False, ncore=ncore)
@@ -62,9 +69,6 @@ for i, testpair in enumerate(epairs):
     #longjdistance = reg.transdiff(diffs, option='longitudinal_jacobian', ignoreexception=False, ncore=ncore)
     #crossjdistance = reg.transdiff(diffs, option='crosssectional_jacobian', ignoreexception=False, ncore=ncore)
  
-    session[i]['testset'] = testset
-    session[i]['templateset'] = templateset
-    #session[i]['transdistance'] = transdistance
     session[i]['imagedistance'] = imagedistance
     #session[i]['longjdistance'] = longjdistance
     #session[i]['crossjdistance'] = crossjdistance
@@ -73,14 +77,12 @@ for i, testpair in enumerate(epairs):
         pickle.dump(session, outfile)
 
 '''
-
 with open(join(dbpath, 'expttemplate.pkl'), 'rb') as infile:
     session = pickle.load(infile)
 
-
 ## Prediction
  
-for i, testpair in enumerate(epairs):
+for i, testpair in enumerate(session):
     #if i < TRIALSTART:
     #    continue
     if i < TRIALSTART:
@@ -124,6 +126,7 @@ crosserr = []
 longerr = []
 mergeerr = []
 imageerr = []
+imagenocuterr = []
 mergeimageerr = []
 
 for i, p in enumerate(testset):
@@ -146,6 +149,10 @@ for i, p in enumerate(testset):
     print 'IMAGE Err:', origerr, 'Registered Err:', regerr, 'Raw Err:', rawerr
     imageerr.append([origerr, regerr, rawerr])
 
+    [origerr, regerr, rawerr] = reg.evaluate(p, ncore=ncore, outprefix='image-nocut')
+    print 'IMAGE-NOCUT Err:', origerr, 'Registered Err:', regerr, 'Raw Err:', rawerr
+    imagenocuterr.append([origerr, regerr, rawerr])
+
     [origerr, regerr, rawerr] = reg.evaluate(p, ncore=ncore, outprefix='mergeimage')
     print 'MERGEIMAGE Err:', origerr, 'Registered Err:', regerr, 'Raw Err:', rawerr
     mergeimageerr.append([origerr, regerr, rawerr])
@@ -155,14 +162,16 @@ err['crosserr'] = crosserr
 err['longerr'] = longerr
 err['mergeerr'] = mergeerr
 err['imageerr'] = imageerr
+err['imagenocuterr'] = imagenocuterr
 err['mergeimageerr'] = mergeimageerr
- 
+
 with open('predicterr.pkl', 'wb') as f:
     pickle.dump(err, f)
 '''
 
 '''
 ## Plot Err
+'''
 figsize = (16,8)
 dpi = 200
 
@@ -225,13 +234,16 @@ crosserr = np.array(err['crosserr'])[:,0]
 longerr = np.array(err['longerr'])[:,0]
 mergeerr = np.array(err['mergeerr'])[:,0]
 imageerr = np.array(err['imageerr'])[:,0]
+imagenocuterr = np.array(err['imagenocuterr'])[:,0]
 mergeimageerr = np.array(err['mergeimageerr'])[:,0]
 rawerr = np.array(err['imageerr'])[:, 2]
+
 sortidx = np.argsort(rawerr)
 sortedcrosserr = crosserr[sortidx]
 sortedlongerr = longerr[sortidx]
 sortedmergeerr = mergeerr[sortidx]
 sortedimageerr = imageerr[sortidx]
+sortedimagenocuterr = imagenocuterr[sortidx]
 sortedmergeimageerr = mergeimageerr[sortidx]
 sortedrawerr = rawerr[sortidx]
 
@@ -239,7 +251,8 @@ fig2, ax2 = subplots(figsize=figsize, dpi=dpi)
 ax2.plot(np.squeeze(sortedcrosserr), label='cross', ls=':')
 ax2.plot(np.squeeze(sortedlongerr), label='long', ls='-.')
 ax2.plot(np.squeeze(sortedmergeerr), label='merge', ls='-')
-ax2.plot(np.squeeze(sortedmergeimageerr), label='mergeimage+intensity', ls='-', color='purple', marker='o')
+#ax2.plot(np.squeeze(sortedmergeimageerr), label='mergeimage+intensity', ls='-', color='purple', marker='o')
+ax2.plot(np.squeeze(sortedimagenocuterr), label='intensity-nocutoff', ls='-', color='purple', marker='o')
 ax2.plot(np.squeeze(sortedimageerr), color='black', label='intensity', ls=':')
 ax2.plot(np.squeeze(sortedrawerr), color='black', label='real', marker='+', ls='-')
 ax2.set_yscale('log')
@@ -253,6 +266,7 @@ crosserr = np.array(err['crosserr'])[:,1]
 longerr = np.array(err['longerr'])[:,1]
 mergeerr = np.array(err['mergeerr'])[:,1]
 imageerr = np.array(err['imageerr'])[:,1]
+imagenocuterr = np.array(err['imagenocuterr'])[:,1]
 mergeimageerr = np.array(err['mergeimageerr'])[:,1]
 rawerr = np.array(err['imageerr'])[:, 2]
 sortidx = np.argsort(rawerr)
@@ -260,6 +274,7 @@ sortedcrosserr = crosserr[sortidx]
 sortedlongerr = longerr[sortidx]
 sortedmergeerr = mergeerr[sortidx]
 sortedimageerr = imageerr[sortidx]
+sortedimagenocuterr = imagenocuterr[sortidx]
 sortedmergeimageerr = mergeimageerr[sortidx]
 sortedrawerr = rawerr[sortidx]
 
@@ -268,7 +283,8 @@ ax3.plot(np.squeeze(sortedcrosserr), label='cross', ls=':')
 ax3.plot(np.squeeze(sortedlongerr), label='long', ls='-.')
 ax3.plot(np.squeeze(sortedmergeerr), label='merge', ls='-')
 ax3.plot(np.squeeze(sortedimageerr), label='intensity', ls=':')
-ax3.plot(np.squeeze(sortedmergeimageerr), label='merge+intensity', ls='-', color='purple', marker='o')
+#ax3.plot(np.squeeze(sortedmergeimageerr), label='merge+intensity', ls='-', color='purple', marker='o')
+ax3.plot(np.squeeze(sortedimagenocuterr), label='intensity-nocutoff', ls='-', color='purple', marker='o')
 #ax3.plot(np.squeeze(sortedimageerr), color='black', label='image', ls='-')
 ax3.plot(np.squeeze(sortedrawerr), color='black', label='real', marker='+', ls='-')
 ax3.legend(loc='upper left')

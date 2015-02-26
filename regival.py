@@ -423,9 +423,6 @@ class MrRegival (object):
         sortidx = np.argsort(ewcopy)
         #ewcopy.sort()
         selectedidx = sortidx[-K:]
-
-        #cutthreshold = ewcopy[-K]
-        #condition =  ew >= cutthreshold
         ew = ew[selectedidx] 
         from operator import itemgetter 
         tpairs = itemgetter(*selectedidx)(tpairs)
