@@ -585,7 +585,10 @@ class MrRegival (object):
 
     def evaluate(self, targetpair, ncore=2, outprefix=''):
         '''
-        Evaluate the predicted images by outputing the 2 distances: predicted-original Image B & predicted-registered Image A
+        Evaluate the predicted images by outputing the 3 distances: 
+             1. Distance between the predicted and the original image B
+             2. Distance between the predicted and the registered image A
+             3. Distance between the registered image A and Image B
         '''
 
         inputnode = pe.MapNode(interface=niu.IdentityInterface(fields=['targeta_imageid',
