@@ -10,13 +10,13 @@ import pickle
  
 NTEST = 1
 interval = [12]
-dbpath = '/media/siqi/SiqiLarge/ADNI-For-Pred'
-ncore = 4
+dbpath = '/home/siqi/ADNI-For-Pred'
+ncore = 4 
 DECAY = 0.9
-WEIGHTING = 'ALL'
+WEIGHTING = 'IMAGE'
 CROSSW = 0.7
 LONGW = 0.3
-K = 5
+K = 54 
  
 c = AdniMrCollection(dbpath=dbpath, regendb=False)
 #c.filtermodels(interval=[12])
@@ -29,7 +29,7 @@ epairs = reg.getcollection().filter_elligible_pairs(interval=interval)
 #reg.normalise(ignoreexception=True, ncore=ncore)
 #reg.transform(ignoreexception=True, ncore=ncore)
 #reg.cross_jacdet(ncore=ncore, ignoreexception=False)
-TRIALSTART = 0
+TRIALSTART = 0 
 TRIALEND = 10
 '''
  
@@ -92,6 +92,7 @@ for i, testpair in enumerate(epairs):
         crossw = crossjddistance[j*len(templateset):(j+1)*len(templateset)]
         imgw = imagedistance[j*len(templateset):(j+1)*len(templateset)]
         mergew = list(CROSSW * np.array(longw) + LONGW * np.array(crossw))
+	mergeimagew = list(0.4 * np.array(mergew) + 0.6 * np.array(imgw))
 
         if WEIGHTING in ['CROSS', 'ALL']:
             reg.predict(p, templateset, crossw, decayratio=DECAY, ncore=ncore, K=K, outprefix='crosssectional_jacobian')
@@ -102,6 +103,8 @@ for i, testpair in enumerate(epairs):
         if WEIGHTING in ['IMAGE', 'ALL']:
             mergepredictionerr = reg.predict(p, templateset, imgw, decayratio=DECAY, ncore=ncore, K=K, outprefix='image')
 
+        if WEIGHTING in ['MERGEIMAGE', 'ALL']:
+            mergepredictionerr = reg.predict(p, templateset, imgw, decayratio=DECAY, ncore=ncore, K=K, outprefix='mergeimage')
 '''
 ## Evaluation
 testset = session[0].testset + session[0].templateset
