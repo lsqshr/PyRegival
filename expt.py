@@ -14,10 +14,10 @@ interval = [12]
 dbpath = '/home/siqi/ADNI-For-Pred'
 ncore = 60 
 DECAY = 0.9
-WEIGHTING = 'IMAGE'
+WEIGHTING = 'MERGE'
 CROSSW = 0.7
 LONGW = 0.3
-K = 54 
+K = 5
  
 c = AdniMrCollection(dbpath=dbpath, regendb=False)
 #c.filtermodels(interval=[12])
@@ -49,11 +49,12 @@ for i, testpair in enumerate(epairs):
     session[i]['templateset'] = templateset
 with open(join(dbpath, 'expttemplate.pkl'), 'wb') as outfile:
     pickle.dump(session, outfile)
-'''
 
+'''
 with open(join(dbpath, 'expttemplate.pkl'), 'rb') as infile:
     session = pickle.load(infile)
 
+'''
 # Collect Leave one out diff
 for i, testpair in enumerate(session):
     if i < TRIALSTART:
@@ -69,16 +70,17 @@ for i, testpair in enumerate(session):
     diffs = list(itertools.product(testset, templateset)) 
     #transdistance = reg.transdiff(diffs, option='trans', ignoreexception=False, ncore=ncore)
     imagedistance = reg.transdiff(diffs, option='image', ignoreexception=False, ncore=ncore)
-    #longjdistance = reg.transdiff(diffs, option='longitudinal_jacobian', ignoreexception=False, ncore=ncore)
-    #crossjdistance = reg.transdiff(diffs, option='crosssectional_jacobian', ignoreexception=False, ncore=ncore)
+    longjdistance = reg.transdiff(diffs, option='longitudinal_jacobian', ignoreexception=False, ncore=ncore)
+    crossjdistance = reg.transdiff(diffs, option='crosssectional_jacobian', ignoreexception=False, ncore=ncore)
  
     tempsession['imagedistance'] = imagedistance
-    #tempsession[i]['longjdistance'] = longjdistance
-    #tempsession[i]['crossjdistance'] = crossjdistance
+    tempsession['longjdistance'] = longjdistance
+    tempsession['crossjdistance'] = crossjdistance
  
     with open(join(dbpath, 'expttemplate%d.pkl'%i), 'wb') as outfile:
         pickle.dump(tempsession, outfile)
 
+'''
 '''
 # Collect all sessions
 for i in range(len(session)):
@@ -94,11 +96,6 @@ for i in range(len(session)):
 with open(join(dbpath, 'expttemplate.pkl'), 'wb') as outfile:
     pickle.dump(session, outfile)
 '''
-    
-
-'''
-with open(join(dbpath, 'expttemplate.pkl'), 'rb') as infile:
-    session = pickle.load(infile)
 
 ## Prediction
  
@@ -137,7 +134,7 @@ for i, testpair in enumerate(session):
             imgw = np.array(imgw)
             mergeimgw = 0.7 * mergew / min(mergew) + 0.3 * np.array(imgw/min(imgw))
             mergepredictionerr = reg.predict(p, templateset, mergeimgw, decayratio=DECAY, ncore=ncore, K=K, outprefix='mergeimage')
-'''
+
 '''
 ## Evaluation
 ldir = os.listdir(join(dbpath, 'results', 'imagepredicted'))
