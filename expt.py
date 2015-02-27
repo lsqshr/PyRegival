@@ -81,7 +81,7 @@ for i, testpair in enumerate(session):
         pickle.dump(session, outfile)
 
 '''
-'''
+
 ## Prediction
  
 for i, testpair in enumerate(session):
@@ -113,14 +113,11 @@ for i, testpair in enumerate(session):
             mergepredictionerr = reg.predict(p, templateset, mergew, decayratio=DECAY, ncore=ncore, K=K, outprefix='merge')
         if WEIGHTING in ['IMAGE', 'ALL']:
             mergepredictionerr = reg.predict(p, templateset, imgw, decayratio=DECAY, ncore=ncore, K=K, outprefix='image')
-        if WEIGHTING in ['MERGEIMAGE', 'ALL']:
-            mergew = np.array(mergew)
-            imgw = np.array(imgw)
-            mergeimgw = 0.7 * mergew / min(mergew) + 0.3 * np.array(imgw/min(imgw))
-            mergepredictionerr = reg.predict(p, templateset, mergeimgw, decayratio=DECAY, ncore=ncore, K=K, outprefix='mergeimage')
+        if WEIGHTING in ['IMGSORT', 'ALL']:
+            mergepredictionerr = reg.predict(p, templateset, mergew, decayratio=DECAY, ncore=ncore, K=K, outprefix='imgsort', sortweights=imgw)
+
 
 '''
-
 ## Evaluation
 ldir = os.listdir(join(dbpath, 'results', 'imagepredicted'))
 
@@ -152,15 +149,6 @@ for i, p in enumerate(testset):
     print 'IMAGE Err:', origerr, 'Registered Err:', regerr, 'Raw Err:', rawerr
     imageerr.append([origerr, regerr, rawerr])
 
-    '''
-    [origerr, regerr, rawerr] = reg.evaluate(p, ncore=ncore, outprefix='image-nocut')
-    print 'IMAGE-NOCUT Err:', origerr, 'Registered Err:', regerr, 'Raw Err:', rawerr
-    imagenocuterr.append([origerr, regerr, rawerr])
-
-    [origerr, regerr, rawerr] = reg.evaluate(p, ncore=ncore, outprefix='mergeimage')
-    print 'MERGEIMAGE Err:', origerr, 'Registered Err:', regerr, 'Raw Err:', rawerr
-    mergeimageerr.append([origerr, regerr, rawerr])
-    '''
  
 err = {}
 err['crosserr'] = crosserr
@@ -338,3 +326,4 @@ ax4.set_yscale('log')
 #fig4.show()
 #fig4.savefig('p-rA-mergeimage.eps')
 
+'''
