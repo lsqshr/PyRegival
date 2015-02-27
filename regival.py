@@ -404,7 +404,7 @@ class MrRegival (object):
         jacdetwf.run(plugin='MultiProc', plugin_args={'n_procs': ncore})
 
 
-    def predict(self, targetpair, tpairs, w, K=4, t=0.5, decayratio=0.85, ncore=2, outprefix=''):
+    def predict(self, targetpair, tpairs, w, K=4, t=0.5, decayratio=0.85, ncore=2, outprefix='', sortweights=None):
         '''
         targetpair : the pair to be simulated 
         tpairs : template pairs that were used for comparison 
@@ -412,6 +412,8 @@ class MrRegival (object):
         N : Int the number of neighbours to merge 
         t : Gaussian kernel density
         ncore : n cpu cores to run the workflow
+        outprefix: the outputprefix of the output prediction folder 
+        sortweights: when sortweights is set, the cut-off will be conducted using the sortweights rather than w, but the merge weighting will still use w
         '''
         start = time.time()
         #print 'raw distances are: ', w
@@ -419,8 +421,12 @@ class MrRegival (object):
         w = w / np.max(np.abs(w))
         ew = np.exp(-(w/t))
         # Find the top N neighbours from row/column by weighting 
-        ewcopy = np.array(ew, copy=True)
-        sortidx = np.argsort(ewcopy)
+        if sortweights is None:
+            ewcopy = np.array(ew, copy=True)
+            sortidx = np.argsort(ewcopy)
+        else:
+            sortidx = np.argsort(sortweights)
+
         #ewcopy.sort()
         selectedidx = sortidx[-K:]
         ew = ew[selectedidx] 
