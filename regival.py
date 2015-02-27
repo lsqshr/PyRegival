@@ -437,6 +437,8 @@ class MrRegival (object):
         followuppairs = self._collection.find_followups(tpairs, interval=[targetpair.getinterval()]) 
 
         # Merge these templates by weighting
+        print 'Merging %d templates with weights' % len(followuppairs)
+        print ew
         g = self.merge(followuppairs, ew, targetpair, decayratio=decayratio, ncore=ncore, outprefix=outprefix)
 
         '''
